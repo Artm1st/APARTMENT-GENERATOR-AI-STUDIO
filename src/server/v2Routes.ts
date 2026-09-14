@@ -1,9 +1,20 @@
 import type { Express } from "express";
 import type { GoogleGenAI } from "@google/genai";
 import { interpretArchitecturalProgram } from "../ai/v2ProgramInterpreter";
+import { interpretHouseholdNarrative } from "../ai/semanticHouseholdInterpreter";
 import { GeminiTemporarilyUnavailableError } from "../ai/modelResilience";
-import { generateRankedCandidates } from "../domain/v2/candidateGenerator";
 import { enrichFunctionalProgram } from "../domain/v2/functionalProgram";
+import {
+  encodeQuestionnaireDeterministically,
+  mergeSemanticProfile,
+  type HybridHouseholdProfile,
+} from "../domain/v2/hybridQualitativeEncoder";
+import type { HouseholdQuestionnaireAnswers } from "../domain/v2/householdQuestionnaire";
+import {
+  createNeutralDesignProtocols,
+  deriveDesignProtocols,
+} from "../domain/v2/designProtocols";
+import { generateStrategicAlternatives } from "../domain/v2/strategicCandidateGenerator";
 import type {
   ArchitecturalProgram,
   LayoutCandidate,
@@ -184,6 +195,51 @@ function serializeCandidate(candidate: LayoutCandidate, program: ArchitecturalPr
   };
 }
 
+async function resolveHouseholdProfile(
+  ai: GoogleGenAI,
+  body: Record<string, unknown>
+): Promise<HybridHouseholdProfile | null> {
+  if (!body.householdAnswers || typeof body.householdAnswers !== "object") return null;
+
+  const answers = body.householdAnswers as HouseholdQuestionnaireAnswers;
+  let profile = encodeQuestionnaireDeterministically(answers);
+
+  // Token-cost policy: semantic analysis is opt-in at API level. The future UI
+  // may send "auto" after explicitly telling the user that free text will be
+  // interpreted with AI. Structured answers alone require zero extra AI calls.
+  const semanticMode = body.semanticProfileMode === "auto" ? "auto" : "off";
+  if (
+    semanticMode === "auto" &&
+    profile.semanticAnalysisRecommended &&
+    profile.narrative.length >= 24
+  ) {
+    const semantic = await interpretHouseholdNarrative(ai, profile.narrative);
+    if (semantic) profile = mergeSemanticProfile(profile, semantic);
+  }
+
+  return profile;
+}
+
+function compactProfileSummary(profile: HybridHouseholdProfile | null) {
+  if (!profile) return null;
+  return {
+    structuredConfidence: profile.structuredConfidence,
+    overallConfidence: profile.overallConfidence,
+    semanticAnalysisRecommended: profile.semanticAnalysisRecommended,
+    tokenPolicy: profile.tokenPolicy,
+    metrics: Object.fromEntries(
+      Object.entries(profile.metrics).map(([key, metric]) => [
+        key,
+        {
+          value: metric.value,
+          confidence: metric.confidence,
+          source: metric.source,
+        },
+      ])
+    ),
+  };
+}
+
 export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
   app.post("/api/v2/generate-candidates", async (req, res) => {
     try {
@@ -198,36 +254,58 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
         ? body.metadata as Record<string, unknown>
         : undefined;
 
-      const interpretedProgram = await interpretArchitecturalProgram(getAI(), { prompt, metadata });
-      const program = enrichFunctionalProgram(interpretedProgram);
-      const candidateCount = Math.floor(clamp(body.candidateCount, 3, 40, 30));
+      const ai = getAI();
+      const householdProfile = await resolveHouseholdProfile(ai, body);
+      const protocols = householdProfile
+        ? deriveDesignProtocols(householdProfile)
+        : createNeutralDesignProtocols();
+
+      const interpretedProgram = await interpretArchitecturalProgram(ai, { prompt, metadata });
+      const baseProgram = enrichFunctionalProgram(interpretedProgram);
+      const candidateBudget = Math.floor(clamp(body.candidateCount, 9, 60, 30));
       const baseSeed = Number.isFinite(Number(body.seed))
         ? Number(body.seed) >>> 0
         : hashString(`${prompt}|${JSON.stringify(site)}|${JSON.stringify(metadata ?? {})}`);
 
-      const ranked = generateRankedCandidates(program, site, baseSeed, {
-        candidateCount,
-        gridSize: 0.1,
-        scanStep: 0.5,
-        dimensionJitter: 0.16,
-      });
+      const strategic = generateStrategicAlternatives(
+        baseProgram,
+        site,
+        protocols,
+        baseSeed,
+        candidateBudget,
+        3
+      );
 
-      const valid = ranked.filter((candidate) => candidate.score?.hardConstraintPass);
-      const selectedPool = valid.length >= 3 ? valid : ranked;
-      const topCandidates = selectedPool.slice(0, 3);
+      const candidates = strategic.alternatives.map((alternative) => ({
+        ...serializeCandidate(alternative.candidate, alternative.program),
+        strategy: {
+          id: alternative.strategy.id,
+          title: alternative.strategy.title,
+          description: alternative.strategy.description,
+          suitability: alternative.strategy.suitability,
+          reasons: alternative.strategy.reasons,
+          generated: alternative.generatedCount,
+          valid: alternative.validCount,
+        },
+      }));
 
       return res.json({
-        engine: "v2-functional",
-        generationSource: "gemini-program-interpreter+functional-program+deterministic-layout",
+        engine: "v2-household-strategic",
+        generationSource: householdProfile
+          ? "household-profile+design-protocols+typology-strategies+gemini-program+deterministic-layout"
+          : "neutral-protocols+typology-strategies+gemini-program+deterministic-layout",
         seed: baseSeed,
         site,
-        program,
+        householdProfile: compactProfileSummary(householdProfile),
+        designProtocols: protocols,
+        program: baseProgram,
         stats: {
-          generated: ranked.length,
-          valid: valid.length,
-          returned: topCandidates.length,
+          generated: strategic.generatedCount,
+          valid: strategic.validCount,
+          returned: candidates.length,
+          strategies: strategic.alternatives.map((alternative) => alternative.strategy.id),
         },
-        candidates: topCandidates.map((candidate) => serializeCandidate(candidate, program)),
+        candidates,
       });
     } catch (error: any) {
       console.error("V2 generation error:", error);
