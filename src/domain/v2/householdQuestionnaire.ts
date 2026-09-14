@@ -3,7 +3,8 @@ import type { HouseholdDesignProfile } from "./designKnowledge";
 export type QuestionnaireQuestionType =
   | "number"
   | "single_choice"
-  | "boolean";
+  | "boolean"
+  | "text";
 
 export interface QuestionnaireOption {
   value: string;
@@ -19,6 +20,7 @@ export interface HouseholdQuestion {
   required: boolean;
   min?: number;
   max?: number;
+  maxLength?: number;
   options?: QuestionnaireOption[];
 }
 
@@ -153,6 +155,14 @@ export const HOUSEHOLD_QUESTIONS: HouseholdQuestion[] = [
       { value: "high", label: "Es una prioridad crítica" },
     ],
   },
+  {
+    id: "familyNarrative",
+    title: "¿Hay algo importante sobre cómo vive tu familia que no hayamos preguntado?",
+    helpText: "Opcional. Por ejemplo: independencia de un adulto mayor, supervisión de niños, mascotas, horarios o actividades especiales. Solo se analizará con IA cuando aporte información adicional.",
+    type: "text",
+    required: false,
+    maxLength: 800,
+  },
 ];
 
 function asNumber(
@@ -226,4 +236,8 @@ export function buildHouseholdDesignProfile(
       "medium"
     ),
   };
+}
+
+export function getFamilyNarrative(answers: HouseholdQuestionnaireAnswers): string {
+  return String(answers.familyNarrative ?? "").trim().slice(0, 800);
 }
