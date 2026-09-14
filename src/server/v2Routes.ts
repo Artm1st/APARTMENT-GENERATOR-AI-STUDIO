@@ -3,6 +3,7 @@ import type { GoogleGenAI } from "@google/genai";
 import { interpretArchitecturalProgram } from "../ai/v2ProgramInterpreter";
 import { GeminiTemporarilyUnavailableError } from "../ai/modelResilience";
 import { generateRankedCandidates } from "../domain/v2/candidateGenerator";
+import { enrichFunctionalProgram } from "../domain/v2/functionalProgram";
 import type {
   ArchitecturalProgram,
   LayoutCandidate,
@@ -197,8 +198,9 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
         ? body.metadata as Record<string, unknown>
         : undefined;
 
-      const program = await interpretArchitecturalProgram(getAI(), { prompt, metadata });
-      const candidateCount = Math.floor(clamp(body.candidateCount, 3, 30, 20));
+      const interpretedProgram = await interpretArchitecturalProgram(getAI(), { prompt, metadata });
+      const program = enrichFunctionalProgram(interpretedProgram);
+      const candidateCount = Math.floor(clamp(body.candidateCount, 3, 40, 30));
       const baseSeed = Number.isFinite(Number(body.seed))
         ? Number(body.seed) >>> 0
         : hashString(`${prompt}|${JSON.stringify(site)}|${JSON.stringify(metadata ?? {})}`);
@@ -215,8 +217,8 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
       const topCandidates = selectedPool.slice(0, 3);
 
       return res.json({
-        engine: "v2",
-        generationSource: "gemini-program-interpreter+deterministic-layout",
+        engine: "v2-functional",
+        generationSource: "gemini-program-interpreter+functional-program+deterministic-layout",
         seed: baseSeed,
         site,
         program,
