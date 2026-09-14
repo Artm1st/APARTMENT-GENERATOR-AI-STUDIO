@@ -67,6 +67,38 @@ function buildableBounds(site: SiteConstraints) {
   };
 }
 
+function desiredDepth(type: SpaceType): number {
+  switch (type) {
+    case "garage": return 0.1;
+    case "living": return 0.25;
+    case "dining": return 0.32;
+    case "kitchen": return 0.42;
+    case "corridor": return 0.48;
+    case "studio": return 0.55;
+    case "laundry": return 0.62;
+    case "bathroom": return 0.65;
+    case "bedroom": return 0.72;
+    case "terrace":
+    case "patio": return 0.78;
+    default: return 0.5;
+  }
+}
+
+function anchorPriority(type: SpaceType): number {
+  switch (type) {
+    case "corridor": return 14;
+    case "living": return 11;
+    case "dining": return 10;
+    case "kitchen": return 9;
+    case "garage": return 8;
+    case "bedroom": return 6;
+    case "bathroom": return 5;
+    case "laundry": return 5;
+    case "studio": return 4;
+    default: return 2;
+  }
+}
+
 function fitsBuildable(space: LayoutSpace, site: SiteConstraints, tolerance = 0.001): boolean {
   const bounds = getSpaceBounds(space);
   const buildable = buildableBounds(site);
@@ -99,6 +131,17 @@ function resolveDimensions(
     config.gridSize,
     programSpace.minWidth ?? DEFAULT_MIN_WIDTH[programSpace.type]
   );
+
+  // Corridors behave as circulation spines rather than square rooms.
+  if (programSpace.type === "corridor") {
+    const shortSide = Math.min(Math.max(minWidth, 1.2), Math.min(maxW, maxH));
+    const longSide = Math.min(Math.max(shortSide, targetArea / shortSide), Math.max(maxW, maxH));
+    const alongDepth = maxH >= maxW;
+    return {
+      w: snap(Math.min(maxW, alongDepth ? shortSide : longSide), config.gridSize),
+      h: snap(Math.min(maxH, alongDepth ? longSide : shortSide), config.gridSize),
+    };
+  }
 
   const jitter = randomBetween(rng, 1 - config.dimensionJitter, 1 + config.dimensionJitter);
   const aspect = randomBetween(rng, 0.75, 1.35) * jitter;
@@ -133,7 +176,9 @@ function relationDegree(program: ArchitecturalProgram, spaceId: string): number 
 function placementOrder(program: ArchitecturalProgram, rng: RandomFn): ProgramSpace[] {
   const shuffled = shuffleSeeded(program.spaces, rng);
   return shuffled.sort(
-    (a, b) => relationDegree(program, b.id) - relationDegree(program, a.id)
+    (a, b) =>
+      anchorPriority(b.type) + relationDegree(program, b.id) -
+      (anchorPriority(a.type) + relationDegree(program, a.id))
   );
 }
 
@@ -195,6 +240,15 @@ function relationCost(
   return cost;
 }
 
+function zoningCost(trial: LayoutSpace, site: SiteConstraints): number {
+  const buildable = buildableBounds(site);
+  const depth = Math.max(0.001, buildable.maxY - buildable.minY);
+  const normalized = Math.max(0, Math.min(1, (trial.y - buildable.minY) / depth));
+  const error = Math.abs(normalized - desiredDepth(trial.type));
+  const weight = trial.type === "garage" || trial.type === "bedroom" ? 22 : 14;
+  return error * weight;
+}
+
 function trialCost(
   trial: LayoutSpace,
   placed: LayoutSpace[],
@@ -206,10 +260,9 @@ function trialCost(
 
   const buildable = buildableBounds(site);
   const centerX = (buildable.minX + buildable.maxX) / 2;
-  const centerY = (buildable.minY + buildable.maxY) / 2;
-  const compactnessBias = Math.hypot(trial.x - centerX, trial.y - centerY) * 0.08;
+  const compactnessBias = Math.abs(trial.x - centerX) * 0.05;
 
-  return relationCost(trial, placed, program) + compactnessBias;
+  return relationCost(trial, placed, program) + zoningCost(trial, site) + compactnessBias;
 }
 
 function touchingTrials(
@@ -218,7 +271,7 @@ function touchingTrials(
   grid: number,
   rng: RandomFn
 ): LayoutSpace[] {
-  const offsets = shuffleSeeded([0, grid, -grid, grid * 2, -grid * 2], rng);
+  const offsets = shuffleSeeded([0, grid, -grid, grid * 2, -grid * 2, grid * 3, -grid * 3], rng);
   const trials: LayoutSpace[] = [];
 
   for (const offset of offsets) {
@@ -312,13 +365,30 @@ function choosePlacement(
 
   if (best) return best;
 
-  // Deliberate invalid fallback: preserve the candidate so hard constraints can
-  // reject it rather than silently dropping a requested space.
   const buildable = buildableBounds(site);
   return {
     ...template,
     x: snap((buildable.minX + buildable.maxX) / 2, config.gridSize),
     y: snap((buildable.minY + buildable.maxY) / 2, config.gridSize),
+  };
+}
+
+function initialPlacement(
+  template: LayoutSpace,
+  site: SiteConstraints,
+  grid: number
+): LayoutSpace {
+  const buildable = buildableBounds(site);
+  const centerX = (buildable.minX + buildable.maxX) / 2;
+  const depth = Math.max(0, buildable.maxY - buildable.minY);
+  const targetY = buildable.minY + depth * desiredDepth(template.type);
+  const minY = buildable.minY + template.h / 2;
+  const maxY = buildable.maxY - template.h / 2;
+
+  return {
+    ...template,
+    x: snap(centerX, grid),
+    y: snap(Math.max(minY, Math.min(maxY, targetY)), grid),
   };
 }
 
@@ -331,7 +401,6 @@ export function generateSeededCandidate(
   const rng = createSeededRandom(seed);
   const ordered = placementOrder(program, rng);
   const placed: LayoutSpace[] = [];
-  const buildable = buildableBounds(site);
 
   for (const programSpace of ordered) {
     const { w, h } = resolveDimensions(programSpace, site, rng, config);
@@ -348,11 +417,7 @@ export function generateSeededCandidate(
     };
 
     if (placed.length === 0) {
-      placed.push({
-        ...template,
-        x: snap((buildable.minX + buildable.maxX) / 2, config.gridSize),
-        y: snap((buildable.minY + buildable.maxY) / 2, config.gridSize),
-      });
+      placed.push(initialPlacement(template, site, config.gridSize));
       continue;
     }
 
