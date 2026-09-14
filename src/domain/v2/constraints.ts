@@ -24,6 +24,21 @@ function hasDoorBetween(
   );
 }
 
+function hasValidExteriorWindow(topology: FloorTopology, spaceId: string): boolean {
+  const exteriorIds = new Set(
+    topology.exteriorBoundaries
+      .filter((boundary) => boundary.spaceId === spaceId)
+      .map((boundary) => boundary.id)
+  );
+
+  return topology.openings.some(
+    (opening) =>
+      opening.type === "window" &&
+      opening.spaceAId === spaceId &&
+      exteriorIds.has(opening.hostBoundaryId)
+  );
+}
+
 export function validateHardGeometryConstraints(
   program: ArchitecturalProgram,
   spaces: LayoutSpace[],
@@ -74,6 +89,21 @@ export function validateHardGeometryConstraints(
   }
 
   const byProgramId = layoutMapByProgramId(spaces);
+
+  for (const programSpace of program.spaces) {
+    if (!programSpace.requiresExteriorOpening) continue;
+    const layoutSpace = byProgramId.get(programSpace.id);
+    if (!layoutSpace) continue;
+
+    if (!hasValidExteriorWindow(topology, layoutSpace.id)) {
+      issues.push({
+        code: "MISSING_EXTERIOR_OPENING",
+        severity: "error",
+        message: `${layoutSpace.label} requiere una abertura exterior, pero no tiene una ventana hospedada en un borde exterior real.`,
+        spaceIds: [layoutSpace.id],
+      });
+    }
+  }
 
   for (const relation of program.relations) {
     const a = byProgramId.get(relation.a);
