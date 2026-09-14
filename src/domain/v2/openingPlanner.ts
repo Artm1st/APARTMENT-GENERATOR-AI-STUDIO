@@ -67,15 +67,21 @@ function makeWindow(
  */
 export function planDoors(
   program: ArchitecturalProgram,
+  spaces: LayoutSpace[],
   topology: FloorTopology,
   config: OpeningPlannerConfig = DEFAULT_OPENING_PLANNER_CONFIG
 ): TopologyOpening[] {
   const doors: TopologyOpening[] = [];
+  const layoutByProgramId = new Map(spaces.map((space) => [space.programSpaceId, space]));
 
   for (const relation of program.relations) {
     if (relation.kind !== "direct_access") continue;
 
-    const boundary = boundaryBetween(topology, relation.a, relation.b);
+    const layoutA = layoutByProgramId.get(relation.a);
+    const layoutB = layoutByProgramId.get(relation.b);
+    if (!layoutA || !layoutB) continue;
+
+    const boundary = boundaryBetween(topology, layoutA.id, layoutB.id);
     if (!boundary) continue;
 
     const maxWidth = availableWidth(boundary.length, config.edgeClearance);
@@ -130,7 +136,7 @@ export function planTopologyOpenings(
   topology: FloorTopology,
   config: OpeningPlannerConfig = DEFAULT_OPENING_PLANNER_CONFIG
 ): FloorTopology {
-  const doors = planDoors(program, topology, config);
+  const doors = planDoors(program, spaces, topology, config);
   const windows = planPreliminaryWindows(program, spaces, topology, config);
 
   return {
