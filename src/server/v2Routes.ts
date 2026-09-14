@@ -5,6 +5,7 @@ import { interpretHouseholdNarrative } from "../ai/semanticHouseholdInterpreter"
 import { GeminiTemporarilyUnavailableError } from "../ai/modelResilience";
 import { enrichFunctionalProgram } from "../domain/v2/functionalProgram";
 import { applyArchitecturalGrammarV3 } from "../domain/v2/architecturalGrammarV3";
+import { rebalanceProgramToSite } from "../domain/v2/programAreaBudget";
 import {
   encodeQuestionnaireDeterministically,
   mergeSemanticProfile,
@@ -212,6 +213,9 @@ function serializeCandidate(candidate: LayoutCandidate, program: ArchitecturalPr
       sharedBoundaryCount: candidate.topology.sharedBoundaries.length,
       exteriorBoundaryCount: candidate.topology.exteriorBoundaries.length,
       openingCount: candidate.topology.openings.length,
+      hasMainEntry: candidate.topology.openings.some(
+        (opening) => opening.type === "door" && opening.role === "main_entry"
+      ),
     },
   };
 }
@@ -281,9 +285,10 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
       const interpretedProgram = await interpretArchitecturalProgram(ai, { prompt, metadata });
       const grammarProgram = applyArchitecturalGrammarV3(interpretedProgram, site);
       const functionalProgram = enrichFunctionalProgram(grammarProgram);
-      const baseProgram = applyArchitecturalGrammarV3(functionalProgram, site);
+      const enrichedProgram = applyArchitecturalGrammarV3(functionalProgram, site);
+      const { program: baseProgram, budget: programBudget } = rebalanceProgramToSite(enrichedProgram, site);
 
-      const candidateBudget = Math.floor(clamp(body.candidateCount, 9, 60, 36));
+      const candidateBudget = Math.floor(clamp(body.candidateCount, 9, 60, 42));
       const baseSeed = Number.isFinite(Number(body.seed))
         ? Number(body.seed) >>> 0
         : hashString(`${prompt}|${JSON.stringify(site)}|${JSON.stringify(metadata ?? {})}`);
@@ -312,14 +317,15 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
       }));
 
       return res.json({
-        engine: "v3-architectural-grammar",
+        engine: "v3.1-habitability-entry-solar",
         generationSource: householdProfile
-          ? "household-profile+design-protocols+typology-strategies+architectural-grammar-v3+gemini-program+deterministic-layout"
-          : "neutral-protocols+typology-strategies+architectural-grammar-v3+gemini-program+deterministic-layout",
+          ? "household-profile+program-budget+design-protocols+typology-strategies+architectural-grammar-v3.1+gemini-program+deterministic-layout"
+          : "program-budget+neutral-protocols+typology-strategies+architectural-grammar-v3.1+gemini-program+deterministic-layout",
         seed: baseSeed,
         site,
         householdProfile: compactProfileSummary(householdProfile),
         designProtocols: protocols,
+        programBudget,
         program: baseProgram,
         stats: {
           generated: strategic.generatedCount,
@@ -332,7 +338,7 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
         candidates,
       });
     } catch (error: any) {
-      console.error("V2 generation error:", error);
+      console.error("V3.1 generation error:", error);
 
       if (error instanceof GeminiTemporarilyUnavailableError) {
         res.setHeader("Retry-After", "5");
@@ -343,7 +349,7 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
       }
 
       return res.status(500).json({
-        error: `No se pudo generar alternativas con Engine v2: ${error?.message ?? "Error desconocido"}`,
+        error: `No se pudo generar alternativas con Engine v3.1: ${error?.message ?? "Error desconocido"}`,
         retryable: false,
       });
     }
