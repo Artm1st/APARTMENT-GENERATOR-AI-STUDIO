@@ -130,7 +130,7 @@ export const INITIAL_TERRAIN: Terrain = {
   setbackBack: 2.0,
   setbackLeft: 1.5,
   setbackRight: 1.5,
-  hasPerimeterWall: true,
+  hasPerimeterWall: false,
   entrySide: "front",
   northAngleDeg: 0,
   hemisphere: "south",
