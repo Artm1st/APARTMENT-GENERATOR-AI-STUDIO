@@ -133,7 +133,8 @@ export interface GeometryIssue {
     | "OUTSIDE_BUILDABLE_AREA"
     | "MISSING_REQUIRED_TOUCH"
     | "FORBIDDEN_TOUCH"
-    | "BROKEN_DIRECT_ACCESS";
+    | "BROKEN_DIRECT_ACCESS"
+    | "MISSING_EXTERIOR_OPENING";
   severity: "error" | "warning";
   message: string;
   spaceIds: string[];
