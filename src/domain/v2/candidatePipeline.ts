@@ -17,7 +17,7 @@ export function prepareCandidate(
   seed?: number
 ): LayoutCandidate {
   const rawTopology = deriveFloorTopology(spaces);
-  const topology = planTopologyOpenings(program, spaces, rawTopology);
+  const topology = planTopologyOpenings(program, spaces, rawTopology, undefined, site);
   const issues = validateHardGeometryConstraints(program, spaces, topology, site);
   const score = scoreCandidate(program, spaces, topology, site, issues);
 
