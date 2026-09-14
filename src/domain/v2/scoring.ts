@@ -4,11 +4,16 @@ import {
   FloorTopology,
   GeometryIssue,
   LayoutSpace,
-  ProgramSpace,
   SiteConstraints,
 } from "./types";
 import { boundaryBetween, getSpaceBounds } from "./topology";
 import { hardConstraintsPass } from "./constraints";
+import {
+  desiredEntryDepth,
+  exteriorSideAzimuth,
+  normalizedEntryDepth,
+  solarExposurePreference,
+} from "./architecturalGrammarV3";
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
@@ -35,6 +40,7 @@ function relationSatisfaction(
   b: LayoutSpace,
   topology: FloorTopology
 ): number {
+  if (a.floor !== b.floor) return 0;
   const shared = boundaryBetween(topology, a.id, b.id);
 
   switch (kind) {
@@ -66,7 +72,7 @@ function scoreAdjacency(
   for (const relation of program.relations) {
     const a = layout.get(relation.a);
     const b = layout.get(relation.b);
-    if (!a || !b) continue;
+    if (!a || !b || a.floor !== b.floor) continue;
 
     const weight = Math.max(0.05, relation.weight);
     possible += weight;
@@ -75,6 +81,11 @@ function scoreAdjacency(
 
   if (possible === 0) return 24;
   return 24 * (achieved / possible);
+}
+
+function connectGraph(graph: Map<string, Set<string>>, a: string, b: string): void {
+  graph.get(a)?.add(b);
+  graph.get(b)?.add(a);
 }
 
 function doorConnectivityRatio(spaces: LayoutSpace[], topology: FloorTopology): number {
@@ -88,13 +99,28 @@ function doorConnectivityRatio(spaces: LayoutSpace[], topology: FloorTopology): 
   for (const opening of topology.openings) {
     if (opening.type !== "door" || !opening.spaceBId) continue;
     if (!ids.has(opening.spaceAId) || !ids.has(opening.spaceBId)) continue;
-    graph.get(opening.spaceAId)?.add(opening.spaceBId);
-    graph.get(opening.spaceBId)?.add(opening.spaceAId);
+    connectGraph(graph, opening.spaceAId, opening.spaceBId);
+  }
+
+  // A vertically aligned stair stack is a logical circulation edge between floors.
+  const stacks = new Map<string, LayoutSpace[]>();
+  for (const space of interior) {
+    if (!space.verticalStackKey) continue;
+    const group = stacks.get(space.verticalStackKey) ?? [];
+    group.push(space);
+    stacks.set(space.verticalStackKey, group);
+  }
+  for (const group of stacks.values()) {
+    const ordered = [...group].sort((a, b) => a.floor - b.floor);
+    for (let i = 0; i < ordered.length - 1; i++) {
+      connectGraph(graph, ordered[i].id, ordered[i + 1].id);
+    }
   }
 
   const root =
-    interior.find((space) => space.type === "corridor") ??
-    interior.find((space) => space.type === "living") ??
+    interior.find((space) => space.floor === 0 && space.type === "corridor") ??
+    interior.find((space) => space.floor === 0 && space.type === "living") ??
+    interior.find((space) => space.floor === 0 && space.type === "stair") ??
     interior[0];
   const visited = new Set<string>([root.id]);
   const queue = [root.id];
@@ -117,26 +143,24 @@ function scoreCirculation(
 ): number {
   const layout = byProgramId(spaces);
   const directRelations = program.relations.filter((relation) => relation.kind === "direct_access");
-  let directRatio = 1;
+  let possible = 0;
+  let valid = 0;
 
-  if (directRelations.length > 0) {
-    let valid = 0;
-    for (const relation of directRelations) {
-      const a = layout.get(relation.a);
-      const b = layout.get(relation.b);
-      if (!a || !b) continue;
-      if (hasDoor(topology, a.id, b.id)) valid++;
-    }
-    directRatio = valid / directRelations.length;
+  for (const relation of directRelations) {
+    const a = layout.get(relation.a);
+    const b = layout.get(relation.b);
+    if (!a || !b || a.floor !== b.floor) continue;
+    possible++;
+    if (hasDoor(topology, a.id, b.id)) valid++;
   }
+  const directRatio = possible > 0 ? valid / possible : 1;
 
   const connected = doorConnectivityRatio(spaces, topology);
-  return 24 * (connected * 0.7 + directRatio * 0.3);
+  return 24 * (connected * 0.72 + directRatio * 0.28);
 }
 
-function scoreCompactness(spaces: LayoutSpace[]): number {
+function compactnessRatio(spaces: LayoutSpace[]): number {
   if (spaces.length === 0) return 0;
-
   const bounds = spaces.map(getSpaceBounds);
   const minX = Math.min(...bounds.map((bound) => bound.minX));
   const maxX = Math.max(...bounds.map((bound) => bound.maxX));
@@ -144,8 +168,17 @@ function scoreCompactness(spaces: LayoutSpace[]): number {
   const maxY = Math.max(...bounds.map((bound) => bound.maxY));
   const envelopeArea = Math.max(0.001, (maxX - minX) * (maxY - minY));
   const roomArea = spaces.reduce((sum, space) => sum + space.w * space.h, 0);
+  return clamp01(roomArea / envelopeArea);
+}
 
-  return 8 * clamp01(roomArea / envelopeArea);
+function scoreCompactness(spaces: LayoutSpace[]): number {
+  const floors = [...new Set(spaces.map((space) => space.floor))];
+  if (floors.length === 0) return 0;
+  const average = floors.reduce(
+    (sum, floor) => sum + compactnessRatio(spaces.filter((space) => space.floor === floor)),
+    0
+  ) / floors.length;
+  return 4 * average;
 }
 
 function scoreDaylight(
@@ -181,6 +214,46 @@ function scoreDaylight(
   return 10 * (valid / required.length);
 }
 
+function scoreSolarOrientation(
+  spaces: LayoutSpace[],
+  topology: FloorTopology,
+  site: SiteConstraints
+): number {
+  const primaryTypes = new Set(["living", "dining", "bedroom", "kitchen", "studio"]);
+  const relevant = spaces.filter((space) => primaryTypes.has(space.type));
+  if (relevant.length === 0) return 8;
+
+  const exteriorById = new Map(topology.exteriorBoundaries.map((boundary) => [boundary.id, boundary]));
+  let total = 0;
+  let count = 0;
+
+  for (const space of relevant) {
+    const windowBoundaries = topology.openings
+      .filter((opening) => opening.type === "window" && opening.spaceAId === space.id)
+      .map((opening) => exteriorById.get(opening.hostBoundaryId))
+      .filter((boundary): boundary is NonNullable<typeof boundary> => Boolean(boundary));
+
+    const candidates = windowBoundaries.length > 0
+      ? windowBoundaries
+      : topology.exteriorBoundaries.filter((boundary) => boundary.spaceId === space.id);
+
+    if (candidates.length === 0) {
+      count++;
+      continue;
+    }
+
+    const best = Math.max(
+      ...candidates.map((boundary) =>
+        solarExposurePreference(space.type, exteriorSideAzimuth(boundary.side, site), site)
+      )
+    );
+    total += best;
+    count++;
+  }
+
+  return count === 0 ? 0 : 8 * (total / count);
+}
+
 function scorePrivacy(
   program: ArchitecturalProgram,
   spaces: LayoutSpace[],
@@ -190,17 +263,28 @@ function scorePrivacy(
   const explicitPrivacyRelations = program.relations.filter(
     (relation) => relation.kind === "must_not_touch"
   );
-  if (explicitPrivacyRelations.length === 0) return 10;
+  const adjacencyRules = (program.pairRules ?? []).filter((rule) => rule.kind === "avoid_adjacency");
 
-  let valid = 0;
+  let achieved = 0;
+  let possible = 0;
+
   for (const relation of explicitPrivacyRelations) {
     const a = layout.get(relation.a);
     const b = layout.get(relation.b);
-    if (!a || !b) continue;
-    if (!boundaryBetween(topology, a.id, b.id)) valid++;
+    if (!a || !b || a.floor !== b.floor) continue;
+    possible += Math.max(0.1, relation.weight);
+    if (!boundaryBetween(topology, a.id, b.id)) achieved += Math.max(0.1, relation.weight);
   }
 
-  return 10 * (valid / explicitPrivacyRelations.length);
+  for (const rule of adjacencyRules) {
+    const a = layout.get(rule.a);
+    const b = layout.get(rule.b);
+    if (!a || !b || a.floor !== b.floor) continue;
+    possible += Math.max(0.1, rule.weight);
+    if (!boundaryBetween(topology, a.id, b.id)) achieved += Math.max(0.1, rule.weight);
+  }
+
+  return possible === 0 ? 10 : 10 * (achieved / possible);
 }
 
 function scoreAreaEfficiency(program: ArchitecturalProgram, spaces: LayoutSpace[]): number {
@@ -233,55 +317,31 @@ function scoreStructuralRegularity(spaces: LayoutSpace[], grid = 0.1): number {
   return 4 * (aligned / spaces.length);
 }
 
-function desiredDepth(space: ProgramSpace): number {
-  switch (space.type) {
-    case "garage": return 0.1;
-    case "living": return 0.25;
-    case "dining": return 0.32;
-    case "kitchen": return 0.42;
-    case "corridor": return 0.48;
-    case "studio": return 0.55;
-    case "laundry": return 0.62;
-    case "bathroom": return 0.65;
-    case "bedroom": return 0.72;
-    case "terrace":
-    case "patio": return 0.78;
-    default:
-      if (space.privacy === "private") return 0.72;
-      if (space.privacy === "service") return 0.58;
-      if (space.privacy === "public") return 0.3;
-      return 0.5;
-  }
-}
-
 function scoreZoning(
   program: ArchitecturalProgram,
   spaces: LayoutSpace[],
   site: SiteConstraints
 ): number {
   const layout = byProgramId(spaces);
-  const minY = site.setbackFront;
-  const maxY = site.length - site.setbackBack;
-  const depth = Math.max(0.001, maxY - minY);
   let achieved = 0;
   let count = 0;
 
   for (const programSpace of program.spaces) {
     const actual = layout.get(programSpace.id);
     if (!actual) continue;
-    const normalizedDepth = clamp01((actual.y - minY) / depth);
-    const error = Math.abs(normalizedDepth - desiredDepth(programSpace));
+    const normalizedDepth = normalizedEntryDepth(actual, site);
+    const error = Math.abs(normalizedDepth - desiredEntryDepth(programSpace.type));
     achieved += clamp01(1 - error / 0.55);
     count++;
   }
 
-  return count === 0 ? 0 : 12 * (achieved / count);
+  return count === 0 ? 0 : 8 * (achieved / count);
 }
 
 /**
- * Heuristic design score. A high soft score never overrides hard constraints.
- * We deliberately weight circulation and zoning above raw compactness so the
- * engine prefers usable plans over tightly packed rectangles.
+ * Heuristic design score. It remains separate from regulatory compliance.
+ * Total is kept at 100 points: circulation and adjacency dominate, raw
+ * compactness is intentionally low, and solar orientation is preliminary.
  */
 export function scoreCandidate(
   program: ArchitecturalProgram,
@@ -294,13 +354,14 @@ export function scoreCandidate(
   const circulation = scoreCirculation(program, spaces, topology);
   const compactness = scoreCompactness(spaces);
   const daylight = scoreDaylight(program, spaces, topology);
+  const solarOrientation = scoreSolarOrientation(spaces, topology, site);
   const privacy = scorePrivacy(program, spaces, topology);
   const areaEfficiency = scoreAreaEfficiency(program, spaces);
   const structuralRegularity = scoreStructuralRegularity(spaces);
   const zoning = scoreZoning(program, spaces, site);
 
   const total =
-    adjacency + circulation + compactness + daylight + privacy +
+    adjacency + circulation + compactness + daylight + solarOrientation + privacy +
     areaEfficiency + structuralRegularity + zoning;
 
   return {
@@ -310,6 +371,7 @@ export function scoreCandidate(
     circulation: Number(circulation.toFixed(2)),
     compactness: Number(compactness.toFixed(2)),
     daylight: Number(daylight.toFixed(2)),
+    solarOrientation: Number(solarOrientation.toFixed(2)),
     privacy: Number(privacy.toFixed(2)),
     areaEfficiency: Number(areaEfficiency.toFixed(2)),
     structuralRegularity: Number(structuralRegularity.toFixed(2)),
