@@ -18,56 +18,61 @@ export interface FurnitureItem {
   id: string;
   type: 'sofa' | 'tv' | 'dining_table' | 'chair' | 'bed' | 'wardrobe' | 'sink' | 'toilet' | 'shower' | 'fridge' | 'stove' | 'desk' | 'plant';
   name: string;
-  x: number; // offset relative to room center (meters)
-  y: number; // offset relative to room center (meters)
-  w: number; // width (meters)
-  h: number; // height (meters)
-  rotation: number; // rotation in degrees (0, 90, 180, 270)
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
 }
 
 export interface RoomOpening {
   id: string;
   type: 'door' | 'window';
   side: 'top' | 'bottom' | 'left' | 'right';
-  offset: number; // Position from 0 to 1 along the wall side
-  width: number; // Width of the door/window in meters
-  targetRoomId?: string; // If door, which room it leads to
+  offset: number;
+  width: number;
+  targetRoomId?: string;
 }
 
 export interface Room {
   id: string;
   name: string;
   type: RoomType;
-  x: number; // center x coordinate (meters)
-  y: number; // center y coordinate (meters)
-  w: number; // current width (meters)
-  h: number; // current height (meters)
-  targetW: number; // target/desired width (meters)
-  targetH: number; // target/desired height (meters)
-  color: string; // hex code for styling
-  connections: string[]; // IDs of other rooms this room should be adjacent to (attractive forces)
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  targetW: number;
+  targetH: number;
+  floor?: number;
+  color: string;
+  connections: string[];
   openings: RoomOpening[];
   furniture: FurnitureItem[];
 }
 
 export interface Terrain {
-  width: number; // total terrain width in meters (e.g., 10m)
-  length: number; // total terrain length in meters (e.g., 20m)
-  setbackFront: number; // front setback (meters)
-  setbackBack: number; // back setback (meters)
-  setbackLeft: number; // left side setback (meters)
-  setbackRight: number; // right side setback (meters)
-  hasPerimeterWall?: boolean; // toggle for perimeter wall around the terrain bounds
+  width: number;
+  length: number;
+  setbackFront: number;
+  setbackBack: number;
+  setbackLeft: number;
+  setbackRight: number;
+  hasPerimeterWall?: boolean;
+  entrySide?: 'front' | 'back' | 'left' | 'right';
+  northAngleDeg?: number;
+  hemisphere?: 'south' | 'north';
+  levels?: number;
 }
 
 export interface PhysicsConfig {
-  attractionStrength: number; // force drawing connected rooms together
-  repulsionStrength: number; // force pushing overlapping rooms apart
-  boundaryStrength: number; // force keeping rooms inside the terrain buildable area
-  gridSnap: boolean; // whether to snap to standard offsets during relaxation
-  gridSize: number; // grid size in meters (e.g., 0.1m or 0.5m)
-  running: boolean; // simulation running state
-  corridorAlignment: number; // alignment force to hallways
+  attractionStrength: number;
+  repulsionStrength: number;
+  boundaryStrength: number;
+  gridSnap: boolean;
+  gridSize: number;
+  running: boolean;
+  corridorAlignment: number;
 }
 
 export interface FloorPlan {

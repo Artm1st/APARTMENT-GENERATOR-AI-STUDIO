@@ -10,9 +10,12 @@ export type SpaceType =
   | "terrace"
   | "patio"
   | "studio"
+  | "stair"
   | "other";
 
 export type PrivacyLevel = "public" | "semi_private" | "private" | "service";
+export type EntrySide = "front" | "back" | "left" | "right";
+export type Hemisphere = "south" | "north";
 
 export type SpatialRelationKind =
   | "must_touch"
@@ -20,6 +23,20 @@ export type SpatialRelationKind =
   | "must_not_touch"
   | "direct_access"
   | "near";
+
+export type ArchitecturalPairRuleKind =
+  | "no_direct_access"
+  | "avoid_adjacency";
+
+export interface ArchitecturalPairRule {
+  id: string;
+  a: string;
+  b: string;
+  kind: ArchitecturalPairRuleKind;
+  weight: number;
+  severity: "error" | "warning";
+  rationale: string;
+}
 
 export interface ProgramSpace {
   id: string;
@@ -32,6 +49,7 @@ export interface ProgramSpace {
   requiresExteriorOpening?: boolean;
   wetArea?: boolean;
   floor?: number;
+  verticalStackKey?: string;
 }
 
 export interface SpatialRelation {
@@ -60,6 +78,7 @@ export interface ArchitecturalProgram {
   spaces: ProgramSpace[];
   relations: SpatialRelation[];
   preferences: DesignPreference[];
+  pairRules?: ArchitecturalPairRule[];
 }
 
 export interface SiteConstraints {
@@ -69,6 +88,10 @@ export interface SiteConstraints {
   setbackBack: number;
   setbackLeft: number;
   setbackRight: number;
+  entrySide?: EntrySide;
+  northAngleDeg?: number;
+  hemisphere?: Hemisphere;
+  levels?: number;
   source?: string;
 }
 
@@ -82,6 +105,7 @@ export interface LayoutSpace {
   w: number;
   h: number;
   floor: number;
+  verticalStackKey?: string;
 }
 
 export type WallSide = "top" | "bottom" | "left" | "right";
@@ -134,8 +158,10 @@ export interface GeometryIssue {
     | "MISSING_REQUIRED_TOUCH"
     | "FORBIDDEN_TOUCH"
     | "BROKEN_DIRECT_ACCESS"
+    | "FORBIDDEN_DIRECT_ACCESS"
     | "MISSING_EXTERIOR_OPENING"
-    | "DISCONNECTED_CIRCULATION";
+    | "DISCONNECTED_CIRCULATION"
+    | "MISSING_VERTICAL_CONNECTION";
   severity: "error" | "warning";
   message: string;
   spaceIds: string[];
@@ -148,6 +174,7 @@ export interface CandidateScore {
   circulation: number;
   compactness: number;
   daylight: number;
+  solarOrientation: number;
   privacy: number;
   areaEfficiency: number;
   structuralRegularity: number;

@@ -20,6 +20,7 @@ const privacyByType: Record<SpaceType, ProgramSpace["privacy"]> = {
   terrace: "public",
   patio: "semi_private",
   studio: "semi_private",
+  stair: "semi_private",
   other: "semi_private",
 };
 
@@ -36,7 +37,7 @@ export function legacyRoomsToLayoutSpaces(rooms: Room[]): LayoutSpace[] {
     y: room.y,
     w: room.w,
     h: room.h,
-    floor: 0,
+    floor: room.floor ?? 0,
   }));
 }
 
@@ -49,7 +50,7 @@ export function legacyRoomsToProgram(rooms: Room[]): ArchitecturalProgram {
     privacy: privacyByType[room.type],
     requiresExteriorOpening: needsExteriorOpening(room.type),
     wetArea: room.type === "bathroom" || room.type === "kitchen" || room.type === "laundry",
-    floor: 0,
+    floor: room.floor ?? 0,
   }));
 
   const knownIds = new Set(rooms.map((room) => room.id));
@@ -94,6 +95,10 @@ export function legacyTerrainToSiteConstraints(terrain: Terrain): SiteConstraint
     setbackBack: terrain.setbackBack,
     setbackLeft: terrain.setbackLeft,
     setbackRight: terrain.setbackRight,
+    entrySide: terrain.entrySide,
+    northAngleDeg: terrain.northAngleDeg,
+    hemisphere: terrain.hemisphere,
+    levels: terrain.levels,
     source: "legacy-ui-input",
   };
 }

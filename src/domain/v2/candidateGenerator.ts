@@ -9,12 +9,23 @@ import {
 import { findSharedBoundary, getSpaceBounds, spacesOverlap } from "./topology";
 import { prepareCandidate, rankCandidates } from "./candidatePipeline";
 import { createSeededRandom, RandomFn, randomBetween, shuffleSeeded } from "./random";
+import {
+  buildableBounds,
+  desiredEntryDepth,
+  entryTargetPoint,
+  normalizedEntryDepth,
+} from "./architecturalGrammarV3";
+import {
+  spatialGrammarPlacementCost,
+  type SpatialGrammarContext,
+} from "./spatialGrammarCost";
 
 export interface CandidateGeneratorConfig {
   candidateCount: number;
   gridSize: number;
   scanStep: number;
   dimensionJitter: number;
+  grammar?: SpatialGrammarContext;
 }
 
 export const DEFAULT_CANDIDATE_GENERATOR_CONFIG: CandidateGeneratorConfig = {
@@ -37,6 +48,7 @@ const DEFAULT_TARGET_AREA: Record<SpaceType, number> = {
   terrace: 8,
   patio: 9,
   studio: 8,
+  stair: 5,
   other: 7,
 };
 
@@ -52,40 +64,16 @@ const DEFAULT_MIN_WIDTH: Record<SpaceType, number> = {
   terrace: 1.8,
   patio: 2,
   studio: 2.2,
+  stair: 1,
   other: 1.8,
 };
 
 const snap = (value: number, grid: number): number =>
   Number((Math.round(value / grid) * grid).toFixed(4));
 
-function buildableBounds(site: SiteConstraints) {
-  return {
-    minX: site.setbackLeft,
-    maxX: site.width - site.setbackRight,
-    minY: site.setbackFront,
-    maxY: site.length - site.setbackBack,
-  };
-}
-
-function desiredDepth(type: SpaceType): number {
-  switch (type) {
-    case "garage": return 0.1;
-    case "living": return 0.25;
-    case "dining": return 0.32;
-    case "kitchen": return 0.42;
-    case "corridor": return 0.48;
-    case "studio": return 0.55;
-    case "laundry": return 0.62;
-    case "bathroom": return 0.65;
-    case "bedroom": return 0.72;
-    case "terrace":
-    case "patio": return 0.78;
-    default: return 0.5;
-  }
-}
-
 function anchorPriority(type: SpaceType): number {
   switch (type) {
+    case "stair": return 16;
     case "corridor": return 14;
     case "living": return 11;
     case "dining": return 10;
@@ -132,10 +120,19 @@ function resolveDimensions(
     programSpace.minWidth ?? DEFAULT_MIN_WIDTH[programSpace.type]
   );
 
-  // Corridors behave as circulation spines rather than square rooms.
   if (programSpace.type === "corridor") {
     const shortSide = Math.min(Math.max(minWidth, 1.2), Math.min(maxW, maxH));
     const longSide = Math.min(Math.max(shortSide, targetArea / shortSide), Math.max(maxW, maxH));
+    const alongDepth = maxH >= maxW;
+    return {
+      w: snap(Math.min(maxW, alongDepth ? shortSide : longSide), config.gridSize),
+      h: snap(Math.min(maxH, alongDepth ? longSide : shortSide), config.gridSize),
+    };
+  }
+
+  if (programSpace.type === "stair") {
+    const shortSide = Math.max(minWidth, Math.sqrt(targetArea / 1.45));
+    const longSide = Math.max(shortSide, targetArea / shortSide);
     const alongDepth = maxH >= maxW;
     return {
       w: snap(Math.min(maxW, alongDepth ? shortSide : longSide), config.gridSize),
@@ -175,16 +172,18 @@ function relationDegree(program: ArchitecturalProgram, spaceId: string): number 
 
 function placementOrder(program: ArchitecturalProgram, rng: RandomFn): ProgramSpace[] {
   const shuffled = shuffleSeeded(program.spaces, rng);
-  return shuffled.sort(
-    (a, b) =>
-      anchorPriority(b.type) + relationDegree(program, b.id) -
-      (anchorPriority(a.type) + relationDegree(program, a.id))
-  );
+  return shuffled.sort((a, b) => {
+    const scoreA = anchorPriority(a.type) + relationDegree(program, a.id);
+    const scoreB = anchorPriority(b.type) + relationDegree(program, b.id);
+    if (Math.abs(scoreB - scoreA) > 0.0001) return scoreB - scoreA;
+    return (a.floor ?? 0) - (b.floor ?? 0);
+  });
 }
 
 function relatedPlacedSpaces(
   program: ArchitecturalProgram,
   programSpaceId: string,
+  floor: number,
   placed: LayoutSpace[]
 ): LayoutSpace[] {
   const placedByProgram = new Map(placed.map((space) => [space.programSpaceId, space]));
@@ -197,7 +196,7 @@ function relatedPlacedSpaces(
     if (!otherId) continue;
 
     const other = placedByProgram.get(otherId);
-    if (other) related.push({ space: other, weight: relation.weight });
+    if (other && other.floor === floor) related.push({ space: other, weight: relation.weight });
   }
 
   return related
@@ -220,7 +219,7 @@ function relationCost(
     if (!otherProgramId) continue;
 
     const other = placedByProgram.get(otherProgramId);
-    if (!other) continue;
+    if (!other || other.floor !== trial.floor) continue;
 
     const shared = findSharedBoundary(trial, other);
     const distance = Math.hypot(trial.x - other.x, trial.y - other.y);
@@ -237,14 +236,24 @@ function relationCost(
     }
   }
 
+  for (const rule of program.pairRules ?? []) {
+    if (rule.kind !== "avoid_adjacency") continue;
+    let otherProgramId: string | null = null;
+    if (rule.a === trial.programSpaceId) otherProgramId = rule.b;
+    if (rule.b === trial.programSpaceId) otherProgramId = rule.a;
+    if (!otherProgramId) continue;
+    const other = placedByProgram.get(otherProgramId);
+    if (!other || other.floor !== trial.floor) continue;
+    const shared = findSharedBoundary(trial, other);
+    if (shared) cost += 45 * Math.max(0.1, rule.weight);
+  }
+
   return cost;
 }
 
 function zoningCost(trial: LayoutSpace, site: SiteConstraints): number {
-  const buildable = buildableBounds(site);
-  const depth = Math.max(0.001, buildable.maxY - buildable.minY);
-  const normalized = Math.max(0, Math.min(1, (trial.y - buildable.minY) / depth));
-  const error = Math.abs(normalized - desiredDepth(trial.type));
+  const normalized = normalizedEntryDepth(trial, site);
+  const error = Math.abs(normalized - desiredEntryDepth(trial.type));
   const weight = trial.type === "garage" || trial.type === "bedroom" ? 22 : 14;
   return error * weight;
 }
@@ -253,16 +262,19 @@ function trialCost(
   trial: LayoutSpace,
   placed: LayoutSpace[],
   program: ArchitecturalProgram,
-  site: SiteConstraints
+  site: SiteConstraints,
+  config: CandidateGeneratorConfig
 ): number {
   if (!fitsBuildable(trial, site)) return Number.POSITIVE_INFINITY;
   if (overlapsAny(trial, placed)) return Number.POSITIVE_INFINITY;
 
   const buildable = buildableBounds(site);
   const centerX = (buildable.minX + buildable.maxX) / 2;
-  const compactnessBias = Math.abs(trial.x - centerX) * 0.05;
+  const centerY = (buildable.minY + buildable.maxY) / 2;
+  const compactnessBias = Math.hypot(trial.x - centerX, trial.y - centerY) * 0.025;
+  const grammarCost = spatialGrammarPlacementCost(trial, site, config.grammar ?? {});
 
-  return relationCost(trial, placed, program) + zoningCost(trial, site) + compactnessBias;
+  return relationCost(trial, placed, program) + zoningCost(trial, site) + compactnessBias + grammarCost;
 }
 
 function touchingTrials(
@@ -334,8 +346,9 @@ function choosePlacement(
   config: CandidateGeneratorConfig,
   rng: RandomFn
 ): LayoutSpace {
-  const anchors = relatedPlacedSpaces(program, template.programSpaceId, placed);
-  const fallbackAnchors = anchors.length > 0 ? anchors : placed;
+  const sameFloor = placed.filter((space) => space.floor === template.floor);
+  const anchors = relatedPlacedSpaces(program, template.programSpaceId, template.floor, placed);
+  const fallbackAnchors = anchors.length > 0 ? anchors : sameFloor;
   const trials: LayoutSpace[] = [];
 
   for (const anchor of fallbackAnchors) {
@@ -346,7 +359,7 @@ function choosePlacement(
   let bestCost = Number.POSITIVE_INFINITY;
 
   for (const trial of trials) {
-    const cost = trialCost(trial, placed, program, site);
+    const cost = trialCost(trial, placed, program, site, config);
     if (cost < bestCost) {
       best = trial;
       bestCost = cost;
@@ -356,7 +369,7 @@ function choosePlacement(
   if (best) return best;
 
   for (const trial of scanTrials(template, site, config, rng)) {
-    const cost = trialCost(trial, placed, program, site);
+    const cost = trialCost(trial, placed, program, site, config);
     if (cost < bestCost) {
       best = trial;
       bestCost = cost;
@@ -364,13 +377,7 @@ function choosePlacement(
   }
 
   if (best) return best;
-
-  const buildable = buildableBounds(site);
-  return {
-    ...template,
-    x: snap((buildable.minX + buildable.maxX) / 2, config.gridSize),
-    y: snap((buildable.minY + buildable.maxY) / 2, config.gridSize),
-  };
+  return initialPlacement(template, site, config.gridSize);
 }
 
 function initialPlacement(
@@ -378,18 +385,33 @@ function initialPlacement(
   site: SiteConstraints,
   grid: number
 ): LayoutSpace {
-  const buildable = buildableBounds(site);
-  const centerX = (buildable.minX + buildable.maxX) / 2;
-  const depth = Math.max(0, buildable.maxY - buildable.minY);
-  const targetY = buildable.minY + depth * desiredDepth(template.type);
-  const minY = buildable.minY + template.h / 2;
-  const maxY = buildable.maxY - template.h / 2;
-
+  const target = entryTargetPoint(template.type, site, template.w, template.h);
   return {
     ...template,
-    x: snap(centerX, grid),
-    y: snap(Math.max(minY, Math.min(maxY, targetY)), grid),
+    x: snap(target.x, grid),
+    y: snap(target.y, grid),
   };
+}
+
+function stackedPlacement(
+  template: LayoutSpace,
+  placed: LayoutSpace[],
+  site: SiteConstraints,
+  grid: number
+): LayoutSpace | null {
+  if (!template.verticalStackKey) return null;
+  const peer = placed.find(
+    (space) => space.verticalStackKey === template.verticalStackKey && space.floor !== template.floor
+  );
+  if (!peer) return null;
+
+  const aligned: LayoutSpace = {
+    ...template,
+    x: snap(peer.x, grid),
+    y: snap(peer.y, grid),
+  };
+  if (!fitsBuildable(aligned, site) || overlapsAny(aligned, placed)) return null;
+  return aligned;
 }
 
 export function generateSeededCandidate(
@@ -414,9 +436,17 @@ export function generateSeededCandidate(
       w,
       h,
       floor: programSpace.floor ?? 0,
+      verticalStackKey: programSpace.verticalStackKey,
     };
 
-    if (placed.length === 0) {
+    const stacked = stackedPlacement(template, placed, site, config.gridSize);
+    if (stacked) {
+      placed.push(stacked);
+      continue;
+    }
+
+    const sameFloor = placed.filter((space) => space.floor === template.floor);
+    if (sameFloor.length === 0) {
       placed.push(initialPlacement(template, site, config.gridSize));
       continue;
     }
