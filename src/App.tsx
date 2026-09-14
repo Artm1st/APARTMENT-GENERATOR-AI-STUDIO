@@ -11,9 +11,8 @@ import EditorSidebar from "./components/EditorSidebar";
 import MagnetizerControls from "./components/MagnetizerControls";
 import { relaxRooms, snapAllToGrid } from "./utils/physics";
 import { generateRandomLayout } from "./utils/generators";
-import { Sparkles, LayoutGrid, RotateCcw, AlertTriangle, Eye, Layers } from "lucide-react";
+import { Sparkles, LayoutGrid, RotateCcw, AlertTriangle, Eye, Layers, Cpu, CheckCircle2 } from "lucide-react";
 
-// Pre-packaged starting rooms for immediate high-end visual feedback
 const INITIAL_ROOMS: Room[] = [
   {
     id: "sala",
@@ -25,7 +24,7 @@ const INITIAL_ROOMS: Room[] = [
     h: 4.0,
     targetW: 5.0,
     targetH: 4.0,
-    color: "#FEF3C7", // amber-100
+    color: "#FEF3C7",
     connections: ["cocina", "pasillo"],
     openings: [
       { id: "win_sala", type: "window", side: "bottom", offset: 0.5, width: 2.0 },
@@ -47,7 +46,7 @@ const INITIAL_ROOMS: Room[] = [
     h: 3.0,
     targetW: 3.5,
     targetH: 3.0,
-    color: "#FEE2E2", // red-100
+    color: "#FEE2E2",
     connections: ["sala"],
     openings: [
       { id: "win_coc", type: "window", side: "left", offset: 0.5, width: 1.2 },
@@ -68,7 +67,7 @@ const INITIAL_ROOMS: Room[] = [
     h: 4.0,
     targetW: 4.5,
     targetH: 4.0,
-    color: "#DBEAFE", // blue-100
+    color: "#DBEAFE",
     connections: ["pasillo", "bano_privado"],
     openings: [
       { id: "win_dorm", type: "window", side: "right", offset: 0.5, width: 1.5 },
@@ -89,7 +88,7 @@ const INITIAL_ROOMS: Room[] = [
     h: 4.0,
     targetW: 1.2,
     targetH: 4.0,
-    color: "#F3F4F6", // grey-100
+    color: "#F3F4F6",
     connections: ["sala", "dormitorio", "bano"],
     openings: [
       { id: "door_pas_bano", type: "door", side: "left", offset: 0.8, width: 0.8 },
@@ -106,7 +105,7 @@ const INITIAL_ROOMS: Room[] = [
     h: 2.0,
     targetW: 2.5,
     targetH: 2.0,
-    color: "#E0F2FE", // sky-100
+    color: "#E0F2FE",
     connections: ["pasillo"],
     openings: [
       { id: "win_bano", type: "window", side: "left", offset: 0.3, width: 0.6 },
@@ -142,11 +141,11 @@ const INITIAL_ROOMS: Room[] = [
 const INITIAL_TERRAIN: Terrain = {
   width: 12.0,
   length: 20.0,
-  setbackFront: 4.0, // 4m front setback
-  setbackBack: 2.0,  // 2m back
-  setbackLeft: 1.5,  // 1.5m side
-  setbackRight: 1.5, // 1.5m side
-  hasPerimeterWall: true, // enabled by default
+  setbackFront: 4.0,
+  setbackBack: 2.0,
+  setbackLeft: 1.5,
+  setbackRight: 1.5,
+  hasPerimeterWall: true,
 };
 
 const INITIAL_PHYSICS_CONFIG: PhysicsConfig = {
@@ -154,10 +153,37 @@ const INITIAL_PHYSICS_CONFIG: PhysicsConfig = {
   repulsionStrength: 7.0,
   boundaryStrength: 5.5,
   gridSnap: true,
-  gridSize: 0.1, // 10cm grid snap
+  gridSize: 0.1,
   running: false,
   corridorAlignment: 3.5,
 };
+
+type EngineMode = "legacy" | "v2";
+
+interface V2Score {
+  total: number;
+  hardConstraintPass: boolean;
+  adjacency: number;
+  circulation: number;
+  compactness: number;
+  daylight: number;
+  privacy: number;
+  areaEfficiency: number;
+  structuralRegularity: number;
+  issues: Array<{ code: string; severity: string; message: string; spaceIds: string[] }>;
+}
+
+interface V2CandidateOption {
+  id: string;
+  seed?: number;
+  score?: V2Score;
+  rooms: Room[];
+  topology?: {
+    sharedBoundaryCount: number;
+    exteriorBoundaryCount: number;
+    openingCount: number;
+  };
+}
 
 export default function App() {
   const [rooms, setRooms] = useState<Room[]>(INITIAL_ROOMS);
@@ -166,15 +192,16 @@ export default function App() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"2d" | "3d">("2d");
   const [planName, setPlanName] = useState("Vivienda Unifamiliar Compacta");
-  
-  // AI State
+  const [engineMode, setEngineMode] = useState<EngineMode>("legacy");
+  const [v2Candidates, setV2Candidates] = useState<V2CandidateOption[]>([]);
+  const [activeV2Candidate, setActiveV2Candidate] = useState(0);
+  const [v2GenerationStats, setV2GenerationStats] = useState<{ generated: number; valid: number; returned: number } | null>(null);
+  const [v2BaseSeed, setV2BaseSeed] = useState<number | null>(null);
+
   const [aiLoading, setAiLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Reset Confirmation State
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  // FULL PROJECT RESET HANDLER
   const handleResetAll = () => {
     try {
       const generated = generateRandomLayout();
@@ -182,7 +209,6 @@ export default function App() {
       setTerrain(generated.terrain);
       setPlanName(generated.planName);
     } catch (e) {
-      // Fallback if anything fails
       setRooms(INITIAL_ROOMS);
       setTerrain(INITIAL_TERRAIN);
       setPlanName("Vivienda Unifamiliar Compacta");
@@ -190,19 +216,19 @@ export default function App() {
     setPhysicsConfig(INITIAL_PHYSICS_CONFIG);
     setSelectedRoomId(null);
     setErrorMessage(null);
+    setV2Candidates([]);
+    setV2GenerationStats(null);
+    setV2BaseSeed(null);
+    setActiveV2Candidate(0);
     setShowResetConfirm(false);
   };
 
-  // REAL-TIME PHYSICS SIMULATION LOOP (RUNS IN BACKGROUND WHILE PLAY ACTIVE)
   useEffect(() => {
     if (!physicsConfig.running) return;
 
     let animFrameId: number;
     const tick = () => {
-      setRooms((prevRooms) => {
-        // Run relaxation frame
-        return relaxRooms(prevRooms, terrain, physicsConfig, null);
-      });
+      setRooms((prevRooms) => relaxRooms(prevRooms, terrain, physicsConfig, null));
       animFrameId = requestAnimationFrame(tick);
     };
 
@@ -210,10 +236,8 @@ export default function App() {
     return () => cancelAnimationFrame(animFrameId);
   }, [physicsConfig.running, terrain, physicsConfig]);
 
-  // SIMULATOR TRIGGER HANDLERS
   const handleResolveCollisions = () => {
     let tempRooms = rooms.map((r) => ({ ...r }));
-    // Temp configuration with high repulsion and zero-attraction/low-attraction to maximize separation
     const tempConfig: PhysicsConfig = {
       ...physicsConfig,
       gridSnap: false,
@@ -223,14 +247,11 @@ export default function App() {
       corridorAlignment: 2.0,
     };
 
-    // Run 100 iterations of relaxation in memory
     for (let i = 0; i < 100; i++) {
       tempRooms = relaxRooms(tempRooms, terrain, tempConfig, null);
     }
 
-    // Force perfect alignment back onto grid sizes
-    const finalized = snapAllToGrid(tempRooms, physicsConfig.gridSize);
-    setRooms(finalized);
+    setRooms(snapAllToGrid(tempRooms, physicsConfig.gridSize));
   };
 
   const handleStepSimulation = () => {
@@ -238,7 +259,6 @@ export default function App() {
   };
 
   const handleResetSimulation = () => {
-    // Return all rooms closer to the terrain center with random spacing
     const centerX = terrain.width / 2;
     const centerY = terrain.length / 2;
 
@@ -256,11 +276,9 @@ export default function App() {
   };
 
   const handleSnapToGrid = () => {
-    const snapped = snapAllToGrid(rooms, physicsConfig.gridSize);
-    setRooms(snapped);
+    setRooms(snapAllToGrid(rooms, physicsConfig.gridSize));
   };
 
-  // ROOM REPLACEMENT ACTIONS
   const handleAddRoom = (newRoom: Room) => {
     setRooms([...rooms, newRoom]);
     setSelectedRoomId(newRoom.id);
@@ -268,27 +286,56 @@ export default function App() {
 
   const handleDeleteRoom = (roomId: string) => {
     setRooms(rooms.filter((r) => r.id !== roomId));
-    if (selectedRoomId === roomId) {
-      setSelectedRoomId(null);
-    }
+    if (selectedRoomId === roomId) setSelectedRoomId(null);
   };
 
   const handleUpdateRoom = (updatedRoom: Room) => {
     setRooms(rooms.map((r) => (r.id === updatedRoom.id ? updatedRoom : r)));
   };
 
-  // AI CALL WRAPPER (CALLS EXPRESS BACKEND)
+  const applyV2Candidate = (index: number) => {
+    const candidate = v2Candidates[index];
+    if (!candidate) return;
+    setActiveV2Candidate(index);
+    setRooms(candidate.rooms);
+    setSelectedRoomId(null);
+    setActiveTab("2d");
+    setPhysicsConfig((prev) => ({ ...prev, running: false }));
+    const score = candidate.score?.total ?? 0;
+    setPlanName(`Engine v2 · Alternativa ${String.fromCharCode(65 + index)} · ${score}/100`);
+  };
+
+  const changeEngineMode = (mode: EngineMode) => {
+    setEngineMode(mode);
+    setErrorMessage(null);
+    setPhysicsConfig((prev) => ({ ...prev, running: false }));
+    if (mode === "legacy") {
+      setV2Candidates([]);
+      setV2GenerationStats(null);
+      setV2BaseSeed(null);
+      setActiveV2Candidate(0);
+    }
+  };
+
   const handleGeneratePlanWithAI = async (promptText: string, metadata?: any) => {
     setAiLoading(true);
     setErrorMessage(null);
+
     try {
-      const response = await fetch("/api/generate-floorplan", {
+      const isV2 = engineMode === "v2";
+      const endpoint = isV2 ? "/api/v2/generate-candidates" : "/api/generate-floorplan";
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: promptText,
           terrainWidth: terrain.width,
           terrainLength: terrain.length,
+          setbackFront: terrain.setbackFront,
+          setbackBack: terrain.setbackBack,
+          setbackLeft: terrain.setbackLeft,
+          setbackRight: terrain.setbackRight,
+          candidateCount: isV2 ? 20 : undefined,
           metadata,
         }),
       });
@@ -301,25 +348,43 @@ export default function App() {
           errMsg = errorData.error || errMsg;
         } else {
           const errorText = await response.text();
-          if (response.status === 504) {
-            errMsg = "La generación con IA tardó demasiado y la conexión expiró (Gateway Timeout). Intente de nuevo con un plano más simple.";
-          } else {
-            errMsg = `Error del servidor (${response.status}): ${errorText.substring(0, 100)}`;
-          }
+          errMsg = response.status === 504
+            ? "La generación con IA tardó demasiado y la conexión expiró (Gateway Timeout). Intente de nuevo con un plano más simple."
+            : `Error del servidor (${response.status}): ${errorText.substring(0, 100)}`;
         }
         throw new Error(errMsg);
       }
 
       const data = await response.json();
-      
+
+      if (isV2) {
+        if (!Array.isArray(data.candidates) || data.candidates.length === 0) {
+          throw new Error("Engine v2 no devolvió alternativas de planta.");
+        }
+
+        const candidates = data.candidates as V2CandidateOption[];
+        setV2Candidates(candidates);
+        setV2GenerationStats(data.stats ?? null);
+        setV2BaseSeed(Number.isFinite(Number(data.seed)) ? Number(data.seed) : null);
+        setActiveV2Candidate(0);
+        setRooms(candidates[0].rooms);
+        setSelectedRoomId(null);
+        setActiveTab("2d");
+        setPhysicsConfig((prev) => ({ ...prev, running: false }));
+        const score = candidates[0].score?.total ?? 0;
+        setPlanName(`Engine v2 · Alternativa A · ${score}/100`);
+        return;
+      }
+
       if (data.rooms && data.rooms.length > 0) {
+        setV2Candidates([]);
+        setV2GenerationStats(null);
+        setV2BaseSeed(null);
         setRooms(data.rooms);
         setPlanName(data.name || "Distribución Sugerida por IA");
         setSelectedRoomId(null);
-        setActiveTab("2d"); // Switch to 2D view so elements are immediately visible on the plane
-        // Automatically run relaxation physics to seat rooms cleanly
+        setActiveTab("2d");
         setPhysicsConfig((prev) => ({ ...prev, running: true }));
-        // Stop relaxation after 2 seconds automatically to lock the plan
         setTimeout(() => {
           setPhysicsConfig((prev) => ({ ...prev, running: false }));
         }, 1800);
@@ -336,8 +401,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans flex flex-col text-slate-800 antialiased" id="main-applet-root">
-      
-      {/* GLOBAL TOP NAV-HEADER */}
       <header className="bg-slate-900 text-white px-6 py-4 flex flex-wrap justify-between items-center shadow-md border-b border-slate-800 gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-indigo-600 rounded-xl shadow-inner">
@@ -349,11 +412,27 @@ export default function App() {
           </div>
         </div>
 
-        {/* Project details card in header */}
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-1 flex items-center gap-1">
+            <button
+              id="engine-mode-legacy"
+              onClick={() => changeEngineMode("legacy")}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${engineMode === "legacy" ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"}`}
+            >
+              Motor actual
+            </button>
+            <button
+              id="engine-mode-v2"
+              onClick={() => changeEngineMode("v2")}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${engineMode === "v2" ? "bg-indigo-500 text-white shadow" : "text-slate-400 hover:text-white"}`}
+            >
+              <Cpu className="w-3 h-3" /> Engine v2 Beta
+            </button>
+          </div>
+
           <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-1 text-center min-w-[120px]">
             <span className="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Plano Activo</span>
-            <span className="text-xs font-bold text-slate-100 truncate max-w-[180px] block">{planName}</span>
+            <span className="text-xs font-bold text-slate-100 truncate max-w-[200px] block">{planName}</span>
           </div>
 
           <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-1 text-center">
@@ -361,7 +440,6 @@ export default function App() {
             <span className="text-xs font-mono font-bold text-slate-100">{terrain.width}x{terrain.length}m</span>
           </div>
 
-          {/* Reset button cluster */}
           <div className="flex items-center">
             {!showResetConfirm ? (
               <button
@@ -375,70 +453,39 @@ export default function App() {
             ) : (
               <div className="flex items-center gap-1.5 bg-slate-800 border border-red-500/50 px-2.5 py-1 rounded-xl animate-fade-in shadow-inner">
                 <span className="text-[9px] font-bold text-red-400">¿Borrar todo?</span>
-                <button
-                  id="reset-confirm-yes"
-                  onClick={handleResetAll}
-                  className="bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer"
-                >
-                  Sí
-                </button>
-                <button
-                  id="reset-confirm-no"
-                  onClick={() => setShowResetConfirm(false)}
-                  className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer"
-                >
-                  No
-                </button>
+                <button id="reset-confirm-yes" onClick={handleResetAll} className="bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">Sí</button>
+                <button id="reset-confirm-no" onClick={() => setShowResetConfirm(false)} className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">No</button>
               </div>
             )}
           </div>
         </div>
       </header>
 
-      {/* DETAILED ERROR BANNER */}
       {errorMessage && (
         <div className="bg-red-50 border-b border-red-200 px-6 py-3 flex items-center justify-between text-red-800 text-sm animate-fade-in">
           <span className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-red-600" />
             <strong>Error del Generador:</strong> {errorMessage}
           </span>
-          <button
-            onClick={() => setErrorMessage(null)}
-            className="text-xs font-semibold underline hover:text-red-900"
-          >
-            Descartar
-          </button>
+          <button onClick={() => setErrorMessage(null)} className="text-xs font-semibold underline hover:text-red-900">Descartar</button>
         </div>
       )}
 
-      {/* MAIN WORKSPACE WRAPPER */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* LEFT COLUMN: INTERACTIVE VIEW & SIMULATOR (8 cols) */}
         <div className="lg:col-span-8 flex flex-col gap-6">
-          
-          {/* View Tab Selectors (2D vs 3D) */}
           <div className="flex justify-between items-center bg-white border border-slate-200/80 p-2 rounded-2xl shadow-xs">
             <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
               <button
                 id="tab-select-2d"
                 onClick={() => setActiveTab("2d")}
-                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                  activeTab === "2d"
-                    ? "bg-white text-slate-950 shadow-xs"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
+                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === "2d" ? "bg-white text-slate-950 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
               >
                 <Layers className="w-3.5 h-3.5" /> Vista 2D Técnica
               </button>
               <button
                 id="tab-select-3d"
                 onClick={() => setActiveTab("3d")}
-                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                  activeTab === "3d"
-                    ? "bg-white text-slate-950 shadow-xs"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
+                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === "3d" ? "bg-white text-slate-950 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
               >
                 <Eye className="w-3.5 h-3.5" /> Vista 3D Interactiva
               </button>
@@ -449,7 +496,64 @@ export default function App() {
             </div>
           </div>
 
-          {/* ACTIVE VIEW CARRIER */}
+          {engineMode === "v2" && (
+            <div className="bg-indigo-950 text-white border border-indigo-800 rounded-2xl p-4 shadow-sm">
+              <div className="flex flex-wrap justify-between gap-3 items-start mb-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-bold text-indigo-100">
+                    <Sparkles className="w-4 h-4 text-indigo-300" /> Engine v2 Beta
+                  </div>
+                  <p className="text-[10px] text-indigo-300 mt-1">
+                    Generación determinista por restricciones. La relajación magnética automática queda desactivada para no alterar la solución evaluada.
+                  </p>
+                </div>
+                {v2GenerationStats && (
+                  <div className="text-right text-[9px] text-indigo-300 font-mono">
+                    <div>{v2GenerationStats.generated} generadas · {v2GenerationStats.valid} válidas</div>
+                    {v2BaseSeed !== null && <div>seed base: {v2BaseSeed}</div>}
+                  </div>
+                )}
+              </div>
+
+              {v2Candidates.length === 0 ? (
+                <div className="border border-indigo-800 bg-indigo-900/40 rounded-xl p-3 text-[11px] text-indigo-200">
+                  Selecciona Engine v2 y genera un plano desde el panel derecho. Aquí aparecerán las tres mejores alternativas.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {v2Candidates.map((candidate, index) => {
+                    const score = candidate.score;
+                    const isActive = activeV2Candidate === index;
+                    const hardPass = score?.hardConstraintPass ?? false;
+                    return (
+                      <button
+                        key={candidate.id}
+                        onClick={() => applyV2Candidate(index)}
+                        className={`text-left rounded-xl border p-3 transition-all cursor-pointer ${isActive ? "bg-white text-slate-900 border-white shadow-md" : "bg-indigo-900/60 border-indigo-700 hover:bg-indigo-900 text-white"}`}
+                      >
+                        <div className="flex justify-between items-center gap-2 mb-1">
+                          <span className="text-xs font-extrabold">Alternativa {String.fromCharCode(65 + index)}</span>
+                          <span className={`text-lg font-black ${isActive ? "text-indigo-700" : "text-indigo-200"}`}>{score?.total ?? 0}</span>
+                        </div>
+                        <div className={`flex items-center gap-1 text-[9px] font-bold ${hardPass ? (isActive ? "text-emerald-700" : "text-emerald-300") : (isActive ? "text-red-700" : "text-red-300")}`}>
+                          {hardPass ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                          {hardPass ? "Hard constraints OK" : "Con restricciones pendientes"}
+                        </div>
+                        <div className={`mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[8px] ${isActive ? "text-slate-500" : "text-indigo-300"}`}>
+                          <span>Adyacencia {score?.adjacency ?? 0}/25</span>
+                          <span>Circulación {score?.circulation ?? 0}/20</span>
+                          <span>Compacidad {score?.compactness ?? 0}/15</span>
+                          <span>Luz {score?.daylight ?? 0}/15</span>
+                        </div>
+                        <div className={`mt-2 text-[8px] font-mono ${isActive ? "text-slate-400" : "text-indigo-400"}`}>seed {candidate.seed ?? "—"}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="relative flex-1 min-h-[450px]">
             {activeTab === "2d" ? (
               <FloorPlanCanvas
@@ -465,20 +569,24 @@ export default function App() {
             )}
           </div>
 
-          {/* SIMULATOR CONTROLLERS */}
-          <MagnetizerControls
-            rooms={rooms}
-            terrain={terrain}
-            physicsConfig={physicsConfig}
-            planName={planName}
-            onUpdateConfig={setPhysicsConfig}
-            onStepSimulation={handleStepSimulation}
-            onResetSimulation={handleResetSimulation}
-            onSnapToGrid={handleSnapToGrid}
-          />
+          {engineMode === "legacy" ? (
+            <MagnetizerControls
+              rooms={rooms}
+              terrain={terrain}
+              physicsConfig={physicsConfig}
+              planName={planName}
+              onUpdateConfig={setPhysicsConfig}
+              onStepSimulation={handleStepSimulation}
+              onResetSimulation={handleResetSimulation}
+              onSnapToGrid={handleSnapToGrid}
+            />
+          ) : (
+            <div className="bg-white border border-indigo-100 rounded-2xl p-3 text-[10px] text-slate-500 shadow-xs">
+              <strong className="text-indigo-700">Engine v2:</strong> el magnetizador está oculto mientras comparas candidatos para conservar exactamente la geometría y el score calculados. Puedes editar manualmente el plano después de seleccionar una alternativa.
+            </div>
+          )}
         </div>
 
-        {/* RIGHT COLUMN: WORKSPACE SIDEBAR (4 cols) */}
         <div className="lg:col-span-4 flex flex-col gap-6">
           <EditorSidebar
             rooms={rooms}
@@ -491,12 +599,11 @@ export default function App() {
             onUpdateRoom={handleUpdateRoom}
             onGeneratePlanWithAI={handleGeneratePlanWithAI}
             aiLoading={aiLoading}
-            onResolveCollisions={handleResolveCollisions}
+            onResolveCollisions={engineMode === "legacy" ? handleResolveCollisions : undefined}
           />
         </div>
       </main>
 
-      {/* DECENTRALIZED FOOTER */}
       <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 py-4 text-center text-[10px] font-semibold tracking-wider mt-12">
         <p>© 2026 Plataforma de Diseño Arquitectónico Generativo. Desarrollado con Inteligencia Artificial.</p>
       </footer>
