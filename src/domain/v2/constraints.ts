@@ -4,8 +4,11 @@ import {
   GeometryIssue,
   LayoutSpace,
   SiteConstraints,
+  WallSide,
 } from "./types";
 import { boundaryBetween, getSpaceBounds, spacesOverlap } from "./topology";
+import { resolvedEntrySide } from "./architecturalGrammarV3";
+import { furnitureFitIssues } from "./habitability";
 
 function layoutMapByProgramId(spaces: LayoutSpace[]): Map<string, LayoutSpace> {
   return new Map(spaces.map((space) => [space.programSpaceId, space]));
@@ -39,12 +42,58 @@ function hasValidExteriorWindow(topology: FloorTopology, spaceId: string): boole
   );
 }
 
+function entryWallSide(site: SiteConstraints): WallSide {
+  switch (resolvedEntrySide(site)) {
+    case "back": return "top";
+    case "left": return "left";
+    case "right": return "right";
+    case "front":
+    default: return "bottom";
+  }
+}
+
+function validateMainEntry(
+  spaces: LayoutSpace[],
+  topology: FloorTopology,
+  site: SiteConstraints
+): GeometryIssue[] {
+  const entry = topology.openings.find(
+    (opening) => opening.type === "door" && opening.role === "main_entry" && !opening.spaceBId
+  );
+  if (!entry) {
+    return [{
+      code: "MISSING_MAIN_ENTRY",
+      severity: "error",
+      message: `No existe una puerta principal exterior válida orientada hacia el lado de ingreso seleccionado (${resolvedEntrySide(site)}).`,
+      spaceIds: [],
+    }];
+  }
+
+  const receiver = spaces.find((space) => space.id === entry.spaceAId);
+  const host = topology.exteriorBoundaries.find((boundary) => boundary.id === entry.hostBoundaryId);
+  const validReceiver = receiver && receiver.floor === 0 && !["bathroom", "bedroom", "kitchen", "laundry", "garage"].includes(receiver.type);
+  const validHost = host && host.spaceId === receiver?.id && host.side === entryWallSide(site);
+
+  if (!validReceiver || !validHost) {
+    return [{
+      code: "MISSING_MAIN_ENTRY",
+      severity: "error",
+      message: "La puerta principal no conecta correctamente el exterior con un espacio público/distribuidor de planta baja en la fachada de ingreso.",
+      spaceIds: receiver ? [receiver.id] : [],
+    }];
+  }
+  return [];
+}
+
 function validateCirculationConnectivity(
   spaces: LayoutSpace[],
   topology: FloorTopology
 ): GeometryIssue[] {
   const issues: GeometryIssue[] = [];
   const floors = [...new Set(spaces.map((space) => space.floor))];
+  const mainEntry = topology.openings.find(
+    (opening) => opening.type === "door" && opening.role === "main_entry"
+  );
 
   for (const floor of floors) {
     const interior = spaces.filter(
@@ -68,8 +117,11 @@ function validateCirculationConnectivity(
     }
 
     const root =
-      interior.find((space) => space.type === "corridor") ??
+      (floor === 0 && mainEntry && eligibleIds.has(mainEntry.spaceAId)
+        ? interior.find((space) => space.id === mainEntry.spaceAId)
+        : undefined) ??
       interior.find((space) => space.type === "stair") ??
+      interior.find((space) => space.type === "corridor") ??
       interior.find((space) => space.type === "living") ??
       interior.find((space) => space.type === "dining") ??
       interior[0];
@@ -90,7 +142,7 @@ function validateCirculationConnectivity(
       issues.push({
         code: "DISCONNECTED_CIRCULATION",
         severity: "error",
-        message: `La circulación interior de la planta ${floor + 1} está desconectada. Ambientes sin ruta de puertas desde el núcleo principal: ${unreachable.map((space) => space.label).join(", ")}.`,
+        message: `La circulación interior de la planta ${floor + 1} está desconectada. Ambientes sin ruta de puertas desde ${floor === 0 ? "el ingreso principal" : "el núcleo vertical/distribuidor"}: ${unreachable.map((space) => space.label).join(", ")}.`,
         spaceIds: unreachable.map((space) => space.id),
       });
     }
@@ -241,11 +293,7 @@ export function validateHardGeometryConstraints(
   for (const relation of program.relations) {
     const a = byProgramId.get(relation.a);
     const b = byProgramId.get(relation.b);
-    if (!a || !b) continue;
-
-    // Ordinary adjacency/door relations are intra-floor. Vertical circulation
-    // is represented by aligned stair stack keys instead.
-    if (a.floor !== b.floor) continue;
+    if (!a || !b || a.floor !== b.floor) continue;
 
     const shared = boundaryBetween(topology, a.id, b.id);
 
@@ -278,7 +326,9 @@ export function validateHardGeometryConstraints(
     }
   }
 
+  issues.push(...validateMainEntry(spaces, topology, site));
   issues.push(...validatePairRules(program, spaces, topology));
+  issues.push(...furnitureFitIssues(spaces));
   issues.push(...validateCirculationConnectivity(spaces, topology));
   issues.push(...validateVerticalConnections(spaces));
   return issues;

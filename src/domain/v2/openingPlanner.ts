@@ -4,9 +4,17 @@ import {
   FloorTopology,
   LayoutSpace,
   SharedBoundary,
+  SiteConstraints,
   TopologyOpening,
+  WallSide,
 } from "./types";
 import { boundaryBetween, exteriorBoundariesForSpace } from "./topology";
+import {
+  exteriorSideAzimuth,
+  normalizedEntryDepth,
+  resolvedEntrySide,
+  solarExposurePreference,
+} from "./architecturalGrammarV3";
 
 export interface OpeningPlannerConfig {
   defaultDoorWidth: number;
@@ -38,9 +46,22 @@ function makeDoor(
   return {
     id: `door_${relationId}_${boundary.id}`,
     type: "door",
+    role: "interior",
     hostBoundaryId: boundary.id,
     spaceAId: boundary.spaceAId,
     spaceBId: boundary.spaceBId,
+    center: openingCenter(boundary.start, boundary.end),
+    width,
+  };
+}
+
+function makeExteriorDoor(boundary: ExteriorBoundary, width: number): TopologyOpening {
+  return {
+    id: `door_main_entry_${boundary.id}`,
+    type: "door",
+    role: "main_entry",
+    hostBoundaryId: boundary.id,
+    spaceAId: boundary.spaceId,
     center: openingCenter(boundary.start, boundary.end),
     width,
   };
@@ -53,11 +74,69 @@ function makeWindow(
   return {
     id: `window_${boundary.id}`,
     type: "window",
+    role: "daylight",
     hostBoundaryId: boundary.id,
     spaceAId: boundary.spaceId,
     center: openingCenter(boundary.start, boundary.end),
     width,
   };
+}
+
+function entryWallSide(site: SiteConstraints): WallSide {
+  switch (resolvedEntrySide(site)) {
+    case "back": return "top";
+    case "left": return "left";
+    case "right": return "right";
+    case "front":
+    default: return "bottom";
+  }
+}
+
+function entrySpacePriority(space: LayoutSpace): number {
+  switch (space.type) {
+    case "corridor": return 6;
+    case "living": return 5;
+    case "dining": return 4;
+    case "stair": return 3;
+    case "studio": return 2;
+    default: return 0;
+  }
+}
+
+/**
+ * Creates one real exterior main-entry door on the chosen entry-facing facade.
+ * Bedrooms, bathrooms, kitchens and service rooms are deliberately not used as
+ * the primary entry receiver in this preliminary grammar.
+ */
+export function planMainEntryDoor(
+  spaces: LayoutSpace[],
+  topology: FloorTopology,
+  site: SiteConstraints,
+  config: OpeningPlannerConfig = DEFAULT_OPENING_PLANNER_CONFIG
+): TopologyOpening[] {
+  const byId = new Map(spaces.map((space) => [space.id, space]));
+  const desiredSide = entryWallSide(site);
+
+  const candidates = topology.exteriorBoundaries
+    .map((boundary) => ({ boundary, space: byId.get(boundary.spaceId) }))
+    .filter((item): item is { boundary: ExteriorBoundary; space: LayoutSpace } => Boolean(item.space))
+    .filter(({ boundary, space }) =>
+      space.floor === 0 &&
+      entrySpacePriority(space) > 0 &&
+      boundary.side === desiredSide &&
+      availableWidth(boundary.length, config.edgeClearance) >= config.defaultDoorWidth
+    )
+    .sort((a, b) => {
+      const priority = entrySpacePriority(b.space) - entrySpacePriority(a.space);
+      if (priority !== 0) return priority;
+      const depth = normalizedEntryDepth(a.space, site) - normalizedEntryDepth(b.space, site);
+      if (Math.abs(depth) > 0.001) return depth;
+      return b.boundary.length - a.boundary.length;
+    });
+
+  const selected = candidates[0];
+  if (!selected) return [];
+  return [makeExteriorDoor(selected.boundary, config.defaultDoorWidth)];
 }
 
 /**
@@ -79,7 +158,7 @@ export function planDoors(
 
     const layoutA = layoutByProgramId.get(relation.a);
     const layoutB = layoutByProgramId.get(relation.b);
-    if (!layoutA || !layoutB) continue;
+    if (!layoutA || !layoutB || layoutA.floor !== layoutB.floor) continue;
 
     const boundary = boundaryBetween(topology, layoutA.id, layoutB.id);
     if (!boundary) continue;
@@ -93,16 +172,33 @@ export function planDoors(
   return doors;
 }
 
+function windowBoundaryScore(
+  boundary: ExteriorBoundary,
+  space: LayoutSpace,
+  site?: SiteConstraints
+): number {
+  const lengthScore = Math.min(1, boundary.length / 3);
+  if (!site) return lengthScore;
+  const solar = solarExposurePreference(
+    space.type,
+    exteriorSideAzimuth(boundary.side, site),
+    site
+  );
+  return solar * 0.78 + lengthScore * 0.22;
+}
+
 /**
  * Plans one preliminary exterior window for spaces that explicitly require an
- * exterior opening. It intentionally does not claim RNE compliance: the final
- * window sizing must come from the rule engine and effective openable area.
+ * exterior opening. When site orientation is available, candidate facades are
+ * ranked by preliminary solar preference before wall length.
  */
 export function planPreliminaryWindows(
   program: ArchitecturalProgram,
   spaces: LayoutSpace[],
   topology: FloorTopology,
-  config: OpeningPlannerConfig = DEFAULT_OPENING_PLANNER_CONFIG
+  config: OpeningPlannerConfig = DEFAULT_OPENING_PLANNER_CONFIG,
+  site?: SiteConstraints,
+  excludedHostIds: Set<string> = new Set()
 ): TopologyOpening[] {
   const windows: TopologyOpening[] = [];
   const layoutByProgramId = new Map(spaces.map((space) => [space.programSpaceId, space]));
@@ -113,9 +209,12 @@ export function planPreliminaryWindows(
     const layoutSpace = layoutByProgramId.get(programSpace.id);
     if (!layoutSpace) continue;
 
-    const candidates = exteriorBoundariesForSpace(topology, layoutSpace.id)
+    let candidates = exteriorBoundariesForSpace(topology, layoutSpace.id)
       .filter((boundary) => availableWidth(boundary.length, config.edgeClearance) >= config.minWindowWidth)
-      .sort((a, b) => b.length - a.length);
+      .sort((a, b) => windowBoundaryScore(b, layoutSpace, site) - windowBoundaryScore(a, layoutSpace, site));
+
+    const nonEntryCandidates = candidates.filter((boundary) => !excludedHostIds.has(boundary.id));
+    if (nonEntryCandidates.length > 0) candidates = nonEntryCandidates;
 
     const host = candidates[0];
     if (!host) continue;
@@ -134,13 +233,16 @@ export function planTopologyOpenings(
   program: ArchitecturalProgram,
   spaces: LayoutSpace[],
   topology: FloorTopology,
-  config: OpeningPlannerConfig = DEFAULT_OPENING_PLANNER_CONFIG
+  config: OpeningPlannerConfig = DEFAULT_OPENING_PLANNER_CONFIG,
+  site?: SiteConstraints
 ): FloorTopology {
-  const doors = planDoors(program, spaces, topology, config);
-  const windows = planPreliminaryWindows(program, spaces, topology, config);
+  const interiorDoors = planDoors(program, spaces, topology, config);
+  const entryDoors = site ? planMainEntryDoor(spaces, topology, site, config) : [];
+  const entryHosts = new Set(entryDoors.map((opening) => opening.hostBoundaryId));
+  const windows = planPreliminaryWindows(program, spaces, topology, config, site, entryHosts);
 
   return {
     ...topology,
-    openings: [...doors, ...windows],
+    openings: [...interiorDoors, ...entryDoors, ...windows],
   };
 }

@@ -6,6 +6,7 @@ import {
   generateRankedCandidates,
   generateSeededCandidate,
 } from "./candidateGenerator";
+import { enrichFunctionalProgram } from "./functionalProgram";
 
 const program: ArchitecturalProgram = {
   projectType: "single_family_house",
@@ -62,6 +63,10 @@ const site: SiteConstraints = {
   setbackBack: 2,
   setbackLeft: 1,
   setbackRight: 1,
+  entrySide: "front",
+  northAngleDeg: 0,
+  hemisphere: "south",
+  levels: 1,
   source: "test",
 };
 
@@ -95,4 +100,24 @@ test("multi-candidate generation returns requested count and deterministic ranki
     if (!valid) invalidSeen = true;
     if (invalidSeen) assert.equal(valid, false);
   }
+});
+
+test("production-like domestic program can produce a valid candidate with real entry and furniture fit", () => {
+  // The HTTP pipeline enriches the raw Gemini program before geometry generation.
+  // Reproduce that here so the test measures the real v3.1 production path.
+  const productionProgram = enrichFunctionalProgram(program);
+  const candidates = generateRankedCandidates(productionProgram, site, 991, {
+    ...DEFAULT_CANDIDATE_GENERATOR_CONFIG,
+    candidateCount: 36,
+    scanStep: 0.4,
+  });
+  const valid = candidates.filter((candidate) => candidate.score?.hardConstraintPass === true);
+  assert.ok(
+    valid.length > 0,
+    `expected at least one valid domestic candidate; best issues: ${candidates[0]?.score?.issues.map((issue) => issue.code).join(",")}`
+  );
+  assert.ok(
+    valid[0].topology.openings.some((opening) => opening.role === "main_entry"),
+    "expected a real main-entry opening"
+  );
 });

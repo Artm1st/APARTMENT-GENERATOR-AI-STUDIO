@@ -14,6 +14,7 @@ import {
   normalizedEntryDepth,
   solarExposurePreference,
 } from "./architecturalGrammarV3";
+import { scoreFurnitureFit } from "./habitability";
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
@@ -79,8 +80,8 @@ function scoreAdjacency(
     achieved += weight * relationSatisfaction(relation.kind, a, b, topology);
   }
 
-  if (possible === 0) return 24;
-  return 24 * (achieved / possible);
+  if (possible === 0) return 20;
+  return 20 * (achieved / possible);
 }
 
 function connectGraph(graph: Map<string, Set<string>>, a: string, b: string): void {
@@ -102,7 +103,6 @@ function doorConnectivityRatio(spaces: LayoutSpace[], topology: FloorTopology): 
     connectGraph(graph, opening.spaceAId, opening.spaceBId);
   }
 
-  // A vertically aligned stair stack is a logical circulation edge between floors.
   const stacks = new Map<string, LayoutSpace[]>();
   for (const space of interior) {
     if (!space.verticalStackKey) continue;
@@ -117,7 +117,11 @@ function doorConnectivityRatio(spaces: LayoutSpace[], topology: FloorTopology): 
     }
   }
 
+  const mainEntry = topology.openings.find(
+    (opening) => opening.type === "door" && opening.role === "main_entry"
+  );
   const root =
+    (mainEntry ? interior.find((space) => space.id === mainEntry.spaceAId) : undefined) ??
     interior.find((space) => space.floor === 0 && space.type === "corridor") ??
     interior.find((space) => space.floor === 0 && space.type === "living") ??
     interior.find((space) => space.floor === 0 && space.type === "stair") ??
@@ -156,7 +160,11 @@ function scoreCirculation(
   const directRatio = possible > 0 ? valid / possible : 1;
 
   const connected = doorConnectivityRatio(spaces, topology);
-  return 24 * (connected * 0.72 + directRatio * 0.28);
+  const hasMainEntry = topology.openings.some(
+    (opening) => opening.type === "door" && opening.role === "main_entry"
+  );
+  const entryFactor = hasMainEntry ? 1 : 0;
+  return 20 * (connected * 0.62 + directRatio * 0.23 + entryFactor * 0.15);
 }
 
 function compactnessRatio(spaces: LayoutSpace[]): number {
@@ -233,17 +241,13 @@ function scoreSolarOrientation(
       .map((opening) => exteriorById.get(opening.hostBoundaryId))
       .filter((boundary): boundary is NonNullable<typeof boundary> => Boolean(boundary));
 
-    const candidates = windowBoundaries.length > 0
-      ? windowBoundaries
-      : topology.exteriorBoundaries.filter((boundary) => boundary.spaceId === space.id);
-
-    if (candidates.length === 0) {
+    if (windowBoundaries.length === 0) {
       count++;
       continue;
     }
 
     const best = Math.max(
-      ...candidates.map((boundary) =>
+      ...windowBoundaries.map((boundary) =>
         solarExposurePreference(space.type, exteriorSideAzimuth(boundary.side, site), site)
       )
     );
@@ -339,9 +343,9 @@ function scoreZoning(
 }
 
 /**
- * Heuristic design score. It remains separate from regulatory compliance.
- * Total is kept at 100 points: circulation and adjacency dominate, raw
- * compactness is intentionally low, and solar orientation is preliminary.
+ * Heuristic design score, separate from regulatory compliance.
+ * v3.1 totals 100 points and introduces an explicit habitability/furniture-fit
+ * component while preserving strong weight for circulation and adjacency.
  */
 export function scoreCandidate(
   program: ArchitecturalProgram,
@@ -356,13 +360,14 @@ export function scoreCandidate(
   const daylight = scoreDaylight(program, spaces, topology);
   const solarOrientation = scoreSolarOrientation(spaces, topology, site);
   const privacy = scorePrivacy(program, spaces, topology);
+  const habitability = 8 * scoreFurnitureFit(spaces);
   const areaEfficiency = scoreAreaEfficiency(program, spaces);
   const structuralRegularity = scoreStructuralRegularity(spaces);
   const zoning = scoreZoning(program, spaces, site);
 
   const total =
     adjacency + circulation + compactness + daylight + solarOrientation + privacy +
-    areaEfficiency + structuralRegularity + zoning;
+    habitability + areaEfficiency + structuralRegularity + zoning;
 
   return {
     total: Number(total.toFixed(2)),
@@ -373,6 +378,7 @@ export function scoreCandidate(
     daylight: Number(daylight.toFixed(2)),
     solarOrientation: Number(solarOrientation.toFixed(2)),
     privacy: Number(privacy.toFixed(2)),
+    habitability: Number(habitability.toFixed(2)),
     areaEfficiency: Number(areaEfficiency.toFixed(2)),
     structuralRegularity: Number(structuralRegularity.toFixed(2)),
     zoning: Number(zoning.toFixed(2)),

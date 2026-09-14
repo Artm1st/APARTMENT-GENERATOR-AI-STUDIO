@@ -26,6 +26,7 @@ interface V2Score {
   daylight: number;
   solarOrientation: number;
   privacy: number;
+  habitability: number;
   areaEfficiency: number;
   structuralRegularity: number;
   zoning: number;
@@ -40,6 +41,7 @@ interface V2StrategyInfo {
   reasons: string[];
   generated: number;
   valid: number;
+  repairPassUsed?: boolean;
 }
 
 interface V2CandidateOption {
@@ -52,6 +54,7 @@ interface V2CandidateOption {
     sharedBoundaryCount: number;
     exteriorBoundaryCount: number;
     openingCount: number;
+    hasMainEntry?: boolean;
   };
 }
 
@@ -61,6 +64,7 @@ interface V2GenerationStats {
   returned: number;
   strategies?: string[];
   levels?: number;
+  repairedStrategies?: string[];
 }
 
 export default function App() {
@@ -242,7 +246,7 @@ export default function App() {
           northAngleDeg: terrain.northAngleDeg ?? 0,
           hemisphere: terrain.hemisphere ?? "south",
           levels: terrain.levels ?? 1,
-          candidateCount: isV2 ? 36 : undefined,
+          candidateCount: isV2 ? 42 : undefined,
           householdAnswers,
           semanticProfileMode,
           metadata,
@@ -268,7 +272,7 @@ export default function App() {
 
       if (isV2) {
         if (!Array.isArray(data.candidates) || data.candidates.length === 0) {
-          throw new Error("Engine v3 no devolvió alternativas de planta.");
+          throw new Error("Engine v3.1 no devolvió alternativas de planta.");
         }
 
         const candidates = data.candidates as V2CandidateOption[];
@@ -317,7 +321,7 @@ export default function App() {
             <h1 className="text-md font-extrabold tracking-tight">DISEÑO ARQUITECTÓNICO GENERATIVO IA</h1>
             <p className="text-[10px] text-slate-400 font-medium">
               {engineMode === "v2"
-                ? "Prediseño habitacional · familia + gramática arquitectónica + restricciones verificables"
+                ? "Prediseño habitacional · familia + habitabilidad + gramática arquitectónica + restricciones verificables"
                 : "Motor experimental anterior de distribución y relajación magnética"}
             </p>
           </div>
@@ -325,7 +329,7 @@ export default function App() {
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-1 flex items-center gap-1">
-            <button id="engine-mode-v2" onClick={() => changeEngineMode("v2")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${engineMode === "v2" ? "bg-indigo-500 text-white shadow" : "text-slate-400 hover:text-white"}`}><Cpu className="w-3 h-3" /> Engine v3 Beta</button>
+            <button id="engine-mode-v2" onClick={() => changeEngineMode("v2")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${engineMode === "v2" ? "bg-indigo-500 text-white shadow" : "text-slate-400 hover:text-white"}`}><Cpu className="w-3 h-3" /> Engine v3.1 Beta</button>
             <button id="engine-mode-legacy" onClick={() => changeEngineMode("legacy")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${engineMode === "legacy" ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"}`}>Motor anterior</button>
           </div>
 
@@ -384,7 +388,7 @@ export default function App() {
               <div className="flex flex-wrap justify-between gap-3 items-start mb-3">
                 <div>
                   <div className="flex items-center gap-2 text-sm font-bold text-indigo-100"><Sparkles className="w-4 h-4 text-indigo-300" /> Estrategias para tu hogar</div>
-                  <p className="text-[10px] text-indigo-300 mt-1 max-w-xl">Cada alternativa representa una intención arquitectónica distinta. El motor considera ingreso, privacidad, incompatibilidades funcionales, orientación solar preliminar y, si corresponde, conexión vertical.</p>
+                  <p className="text-[10px] text-indigo-300 mt-1 max-w-xl">Cada alternativa representa una intención arquitectónica distinta. El motor considera ingreso exterior real, privacidad, incompatibilidades funcionales, furniture-fit, orientación solar preliminar y, si corresponde, conexión vertical.</p>
                 </div>
                 {v2GenerationStats && (
                   <div className="text-right text-[9px] text-indigo-300 font-mono">
@@ -422,16 +426,18 @@ export default function App() {
 
                         <div className={`mt-2 flex items-center gap-1 text-[9px] font-bold ${hardPass ? (isActive ? "text-emerald-700" : "text-emerald-300") : (isActive ? "text-red-700" : "text-red-300")}`}>
                           {hardPass ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                          {hardPass ? "Restricciones geométricas OK" : "Con restricciones pendientes"}
+                          {hardPass ? "Restricciones + habitabilidad OK" : "Con restricciones pendientes"}
                         </div>
 
                         <div className={`mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[8px] ${isActive ? "text-slate-500" : "text-indigo-300"}`}>
-                          <span>Adyacencia {score?.adjacency ?? 0}/24</span>
-                          <span>Circulación {score?.circulation ?? 0}/24</span>
+                          <span>Adyacencia {score?.adjacency ?? 0}/20</span>
+                          <span>Circulación {score?.circulation ?? 0}/20</span>
                           <span>Privacidad {score?.privacy ?? 0}/10</span>
                           <span>Luz {score?.daylight ?? 0}/10</span>
+                          <span>Habitabilidad {score?.habitability ?? 0}/8</span>
                           <span>Asoleamiento {score?.solarOrientation ?? 0}/8</span>
                           <span>Zonificación {score?.zoning ?? 0}/8</span>
+                          <span>Ingreso {candidate.topology?.hasMainEntry ? "✓" : "—"}</span>
                           <span>Compacidad {score?.compactness ?? 0}/4</span>
                         </div>
                         <div className={`mt-2 text-[8px] font-mono ${isActive ? "text-slate-400" : "text-indigo-400"}`}>seed {candidate.seed ?? "—"}</div>
@@ -454,7 +460,7 @@ export default function App() {
           {engineMode === "legacy" ? (
             <MagnetizerControls rooms={rooms} terrain={terrain} physicsConfig={physicsConfig} planName={planName} onUpdateConfig={setPhysicsConfig} onStepSimulation={handleStepSimulation} onResetSimulation={handleResetSimulation} onSnapToGrid={handleSnapToGrid} />
           ) : (
-            <div className="bg-white border border-indigo-100 rounded-2xl p-3 text-[10px] text-slate-500 shadow-xs"><strong className="text-indigo-700">Engine v3:</strong> el magnetizador queda desactivado durante la comparación para no deformar una solución ya evaluada. Cambia de planta con el selector superior y edita manualmente después de elegir una estrategia.</div>
+            <div className="bg-white border border-indigo-100 rounded-2xl p-3 text-[10px] text-slate-500 shadow-xs"><strong className="text-indigo-700">Engine v3.1:</strong> el magnetizador queda desactivado durante la comparación para no deformar una solución evaluada. El ingreso, el furniture-fit y las ventanas orientadas se vuelven a validar en cada candidata.</div>
           )}
         </div>
 
