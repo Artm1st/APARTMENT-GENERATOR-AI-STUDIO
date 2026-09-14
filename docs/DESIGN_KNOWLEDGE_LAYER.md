@@ -2,38 +2,51 @@
 
 ## Objetivo
 
-La aplicación no debe limitarse a encajar ambientes ni a aprobar chequeos normativos. Su objetivo es producir propuestas habitables, explicables y técnicamente viables para familias que normalmente no tienen acceso a información arquitectónica especializada.
+La aplicación no debe limitarse a encajar ambientes ni a aprobar chequeos normativos. Su objetivo es producir propuestas habitables, explicables y técnicamente orientadas para familias que normalmente no tienen acceso a información arquitectónica especializada.
 
-La calidad del diseño se construirá con capas separadas para evitar confundir obligaciones legales, buenas prácticas, preferencias familiares y requisitos de información BIM.
+La prioridad de esta etapa será **familia + habitar + diseño arquitectónico + RNE**. BIM queda explícitamente fuera del alcance funcional actual hasta que exista un modelo técnico suficientemente maduro para justificarlo.
 
 ## Jerarquía de decisión
 
 ```text
-1. Restricciones obligatorias
+1. Perfil familiar y forma de habitar
+   composición del hogar, rutinas, privacidad, visitas, cocina,
+   trabajo/estudio en casa, crecimiento, accesibilidad, presupuesto
+
+2. Restricciones obligatorias
    RNE + parámetros urbanísticos + condiciones del lote
 
-2. Habitabilidad y desempeño
+3. Habitabilidad y desempeño
    circulación, privacidad, accesibilidad, iluminación, ventilación,
-   mobiliario, almacenamiento, acústica, eficiencia de servicios
+   mobiliario, almacenamiento, acústica y eficiencia de servicios
 
-3. Estrategia de habitar
-   composición familiar, rutinas, visitantes, cocina, trabajo en casa,
-   convivencia, intimidad, crecimiento y construcción progresiva
-
-4. Diseño arquitectónico
+4. Estrategia de diseño arquitectónico
    gradientes, umbrales, secuencias, centralidades, patios, núcleos,
    relación interior-exterior, flexibilidad y carácter espacial
 
-5. BIM / información
-   estructura semántica, requisitos de información, clasificación,
-   trazabilidad, IFC y entregables
+5. Generación y evaluación
+   tipologías distintas → candidatos → validación → explicación
 ```
 
-Una solución solo puede llamarse **viable** cuando cumple la capa 1. Las capas 2–4 determinan su calidad arquitectónica. La capa 5 hace que el producto sea trazable e interoperable; no sustituye el diseño.
+Una solución solo puede llamarse **viable** cuando cumple la capa 2 con los datos disponibles. Las capas 1, 3 y 4 determinan su calidad arquitectónica y pertinencia para la familia.
+
+## BIM fuera del alcance actual
+
+Por decisión de producto, BIM no se usará en esta etapa como etiqueta comercial, criterio de score ni promesa de interoperabilidad. La aplicación actual todavía no representa con suficiente rigor un modelo técnico BIM completo, y forzar esa capa puede introducir complejidad sin mejorar la calidad del prediseño residencial.
+
+Se mantiene únicamente como posible línea futura cuando existan:
+
+- topología y semántica constructiva maduras;
+- niveles, estructura y elementos persistentes;
+- modelado técnico más completo;
+- exportación IFC real;
+- flujo probado con software especializado.
+
+Hasta entonces, la interfaz debe hablar de **prediseño arquitectónico**, **viabilidad preliminar** y **chequeo RNE**, no de cumplimiento BIM.
 
 ## Fuentes normativas y oficiales prioritarias
 
-### Perú — normativa de diseño
+### Perú — normativa y habitabilidad
 
 - Reglamento Nacional de Edificaciones (RNE), Ministerio de Vivienda, Construcción y Saneamiento.
 - Norma Técnica A.010 — Condiciones Generales de Diseño, RM N.° 191-2021-VIVIENDA.
@@ -41,18 +54,6 @@ Una solución solo puede llamarse **viable** cuando cumple la capa 1. Las capas 
 - Norma Técnica A.120 — Accesibilidad Universal en Edificaciones y modificaciones vigentes.
 - Guía para el diseño de viviendas accesibles, RM N.° 228-2026-VIVIENDA.
 - Parámetros urbanísticos y edificatorios municipales: siempre deben ser inputs del proyecto y no inferencias del modelo.
-
-### Perú — BIM
-
-Para un producto orientado principalmente al contexto peruano, la referencia BIM primaria debe ser **Plan BIM Perú / Guía Nacional BIM**, porque adapta ISO 19650 al contexto de inversiones públicas peruanas y proporciona formatos de requisitos de información y matriz de Nivel de Información Necesaria.
-
-Planbim Chile puede conservarse como referencia secundaria de interoperabilidad y como antecedente metodológico, especialmente en TDI/NDI e intercambio IFC, pero no debería sustituir el marco peruano cuando el proyecto está ubicado en Perú.
-
-### Chile — referencia interoperable
-
-- Estándar BIM para Proyectos Públicos, Planbim CORFO Chile, v1.1 (2019).
-
-La arquitectura del software debe permitir adapters de jurisdicción (`PE`, `CL`) para evitar mezclar requisitos de países distintos.
 
 ## Corpus de diseño arquitectónico inicial
 
@@ -97,23 +98,25 @@ Aplicaciones computables:
 - habitaciones con proporciones reutilizables;
 - capacidad de subdividir/integrar sin inutilizar la circulación.
 
-## Perfil de hogar
+## Entrada principal: cuestionario familiar
 
-La siguiente versión del asistente no debería preguntar únicamente “cuántos dormitorios”. Debe construir un `HouseholdDesignProfile` simplificado.
+La siguiente versión del asistente no debe comenzar preguntando solamente por dormitorios o metros cuadrados. Debe construir primero un `HouseholdDesignProfile` mediante preguntas simples y cotidianas.
 
-Ejemplos de preguntas no técnicas:
+Ejemplos:
 
 - ¿Cuántas personas vivirán normalmente aquí?
-- ¿Es una familia nuclear, multigeneracional o vivienda compartida?
+- ¿Cómo está compuesto el hogar: una persona, pareja, familia, multigeneracional o compartido?
 - ¿Reciben visitas con frecuencia?
+- ¿Prefieren una casa muy integrada o con mayor privacidad?
 - ¿La cocina es un espacio social o principalmente de servicio?
-- ¿Alguien necesita trabajar o estudiar regularmente desde casa?
-- ¿Esperan que la vivienda crezca en el futuro?
-- ¿Prefieren mayor privacidad o espacios más integrados?
-- ¿La construcción será completa o por etapas?
-- ¿Quieren priorizar accesibilidad universal desde el inicio?
+- ¿Alguien trabaja o estudia regularmente desde casa?
+- ¿Esperan que el hogar crezca o cambie en los próximos años?
+- ¿La vivienda se construirá completa o por etapas?
+- ¿Quieren priorizar accesibilidad desde el inicio?
+- ¿Necesitan mucho almacenamiento?
+- ¿El presupuesto inicial debe ser especialmente contenido?
 
-Estas respuestas no dibujan directamente el plano: modifican pesos, relaciones y estrategias que luego evalúa el motor.
+Las respuestas no dibujan directamente el plano. Se transforman en **pesos de diseño, relaciones funcionales y estrategias tipológicas**.
 
 ## Protocolos de evaluación propuestos
 
@@ -140,7 +143,8 @@ Evaluar si el núcleo social responde al perfil familiar:
 
 - sala/comedor/cocina abierta, semiabierta o separada según preferencias;
 - visibilidad y proximidad cuando hay convivencia intensa;
-- posibilidad de aislar cocina cuando la familia prioriza olores/ruido/servicio.
+- posibilidad de aislar cocina cuando la familia prioriza olores/ruido/servicio;
+- capacidad de recibir visitas sin invadir dormitorios.
 
 No existe una única planta “correcta”. El motor debe producir familias tipológicas distintas.
 
@@ -179,17 +183,6 @@ La UI debe distinguir claramente:
 
 Nunca mostrar “Cumple RNE” si faltan datos que el RNE o la municipalidad necesitan para verificar el caso.
 
-### P7 — BIM
-
-BIM se aplicará después de estabilizar la geometría:
-
-- Project / Site / Building / Storey;
-- Spaces, Walls, Doors, Windows con IDs persistentes;
-- clasificación y properties con procedencia;
-- Nivel de Información Necesaria por uso/entregable;
-- exportación IFC real;
-- DXF se mantiene como CAD y no se etiqueta como IFC.
-
 ## Explicabilidad para usuarios no arquitectos
 
 Cada alternativa debería poder responder:
@@ -217,10 +210,6 @@ Adaptabilidad
 ✓ Dormitorio secundario puede convertirse en estudio
 ✓ Núcleo húmedo agrupado
 ○ Posible ampliación posterior hacia patio posterior
-
-BIM
-✓ Espacios y vanos tienen IDs persistentes
-○ IFC todavía no generado
 ```
 
 La app debe enseñar mientras diseña, sin intentar reemplazar al arquitecto cuando el proyecto requiera desarrollo profesional, cálculo, especialidades o licencia.
@@ -228,13 +217,12 @@ La app debe enseñar mientras diseña, sin intentar reemplazar al arquitecto cua
 ## Próximos componentes de software
 
 1. `DesignKnowledgeRegistry` — principios con provenance.
-2. `HouseholdDesignProfile` — necesidades del hogar.
-3. `DesignProtocolEvaluator` — evaluadores por dimensión.
-4. `RuleRegistry` — RNE y parámetros con versiones.
-5. `JurisdictionAdapter` — Perú / Chile sin mezclar reglas.
+2. `HouseholdQuestionnaire` — preguntas no técnicas para la familia.
+3. `HouseholdDesignProfile` — síntesis de necesidades y preferencias.
+4. `DesignProtocolEvaluator` — evaluadores por dimensión.
+5. `RuleRegistry` — RNE y parámetros con versiones.
 6. `DesignExplanation` — explica score y trade-offs.
-7. `TypologyStrategy` — genera alternativas realmente distintas: lineal, patio, núcleo central, banda de servicios, etc.
-8. `BimInformationProfile` — requisitos de información independientes del score arquitectónico.
+7. `TypologyStrategy` — genera alternativas realmente distintas: lineal, patio, núcleo central, banda de servicios, vivienda evolutiva, etc.
 
 ## Principio de producto
 
