@@ -69,6 +69,7 @@ function validateCirculationConnectivity(
 
     const root =
       interior.find((space) => space.type === "corridor") ??
+      interior.find((space) => space.type === "stair") ??
       interior.find((space) => space.type === "living") ??
       interior.find((space) => space.type === "dining") ??
       interior[0];
@@ -92,6 +93,79 @@ function validateCirculationConnectivity(
         message: `La circulación interior de la planta ${floor + 1} está desconectada. Ambientes sin ruta de puertas desde el núcleo principal: ${unreachable.map((space) => space.label).join(", ")}.`,
         spaceIds: unreachable.map((space) => space.id),
       });
+    }
+  }
+
+  return issues;
+}
+
+function validateVerticalConnections(spaces: LayoutSpace[]): GeometryIssue[] {
+  const floors = [...new Set(spaces.map((space) => space.floor))].sort((a, b) => a - b);
+  if (floors.length <= 1) return [];
+
+  const issues: GeometryIssue[] = [];
+  const stackGroups = new Map<string, LayoutSpace[]>();
+  for (const space of spaces) {
+    if (!space.verticalStackKey) continue;
+    const group = stackGroups.get(space.verticalStackKey) ?? [];
+    group.push(space);
+    stackGroups.set(space.verticalStackKey, group);
+  }
+
+  const occupiedFloors = new Set(floors);
+  const validStack = [...stackGroups.values()].find((group) => {
+    const groupFloors = new Set(group.map((space) => space.floor));
+    if ([...occupiedFloors].some((floor) => !groupFloors.has(floor))) return false;
+    const anchor = group[0];
+    return group.every(
+      (space) => Math.abs(space.x - anchor.x) <= 0.12 && Math.abs(space.y - anchor.y) <= 0.12
+    );
+  });
+
+  if (!validStack) {
+    issues.push({
+      code: "MISSING_VERTICAL_CONNECTION",
+      severity: "error",
+      message: "La propuesta tiene varios niveles, pero no existe una escalera o conexión vertical continua y alineada entre las plantas ocupadas.",
+      spaceIds: spaces.filter((space) => space.type === "stair").map((space) => space.id),
+    });
+  }
+
+  return issues;
+}
+
+function validatePairRules(
+  program: ArchitecturalProgram,
+  spaces: LayoutSpace[],
+  topology: FloorTopology
+): GeometryIssue[] {
+  const issues: GeometryIssue[] = [];
+  const byProgramId = layoutMapByProgramId(spaces);
+
+  for (const rule of program.pairRules ?? []) {
+    const a = byProgramId.get(rule.a);
+    const b = byProgramId.get(rule.b);
+    if (!a || !b || a.floor !== b.floor) continue;
+
+    if (rule.kind === "no_direct_access" && hasDoorBetween(topology, a.id, b.id)) {
+      issues.push({
+        code: "FORBIDDEN_DIRECT_ACCESS",
+        severity: rule.severity,
+        message: `${a.label} y ${b.label} no deben tener acceso directo entre sí. ${rule.rationale}`,
+        spaceIds: [a.id, b.id],
+      });
+    }
+
+    if (rule.kind === "avoid_adjacency") {
+      const shared = boundaryBetween(topology, a.id, b.id);
+      if (shared) {
+        issues.push({
+          code: "FORBIDDEN_TOUCH",
+          severity: rule.severity,
+          message: `${a.label} y ${b.label} comparten ${shared.length.toFixed(2)} m de muro; se recomienda introducir un filtro o reconsiderar la adyacencia. ${rule.rationale}`,
+          spaceIds: [a.id, b.id],
+        });
+      }
     }
   }
 
@@ -169,6 +243,10 @@ export function validateHardGeometryConstraints(
     const b = byProgramId.get(relation.b);
     if (!a || !b) continue;
 
+    // Ordinary adjacency/door relations are intra-floor. Vertical circulation
+    // is represented by aligned stair stack keys instead.
+    if (a.floor !== b.floor) continue;
+
     const shared = boundaryBetween(topology, a.id, b.id);
 
     if ((relation.kind === "must_touch" || relation.kind === "direct_access") && !shared) {
@@ -200,7 +278,9 @@ export function validateHardGeometryConstraints(
     }
   }
 
+  issues.push(...validatePairRules(program, spaces, topology));
   issues.push(...validateCirculationConnectivity(spaces, topology));
+  issues.push(...validateVerticalConnections(spaces));
   return issues;
 }
 
