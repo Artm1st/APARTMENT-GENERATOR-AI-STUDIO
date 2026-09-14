@@ -1,13 +1,12 @@
 import type { Express } from "express";
 import type { GoogleGenAI } from "@google/genai";
 import { interpretArchitecturalProgram } from "../ai/v2ProgramInterpreter";
+import { GeminiTemporarilyUnavailableError } from "../ai/modelResilience";
 import { generateRankedCandidates } from "../domain/v2/candidateGenerator";
 import type {
   ArchitecturalProgram,
-  ExteriorBoundary,
   LayoutCandidate,
   LayoutSpace,
-  SharedBoundary,
   SiteConstraints,
   SpaceType,
   TopologyOpening,
@@ -230,8 +229,18 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
       });
     } catch (error: any) {
       console.error("V2 generation error:", error);
+
+      if (error instanceof GeminiTemporarilyUnavailableError) {
+        res.setHeader("Retry-After", "5");
+        return res.status(503).json({
+          error: error.message,
+          retryable: true,
+        });
+      }
+
       return res.status(500).json({
         error: `No se pudo generar alternativas con Engine v2: ${error?.message ?? "Error desconocido"}`,
+        retryable: false,
       });
     }
   });
