@@ -15,12 +15,17 @@ import {
   entryTargetPoint,
   normalizedEntryDepth,
 } from "./architecturalGrammarV3";
+import {
+  spatialGrammarPlacementCost,
+  type SpatialGrammarContext,
+} from "./spatialGrammarCost";
 
 export interface CandidateGeneratorConfig {
   candidateCount: number;
   gridSize: number;
   scanStep: number;
   dimensionJitter: number;
+  grammar?: SpatialGrammarContext;
 }
 
 export const DEFAULT_CANDIDATE_GENERATOR_CONFIG: CandidateGeneratorConfig = {
@@ -257,7 +262,8 @@ function trialCost(
   trial: LayoutSpace,
   placed: LayoutSpace[],
   program: ArchitecturalProgram,
-  site: SiteConstraints
+  site: SiteConstraints,
+  config: CandidateGeneratorConfig
 ): number {
   if (!fitsBuildable(trial, site)) return Number.POSITIVE_INFINITY;
   if (overlapsAny(trial, placed)) return Number.POSITIVE_INFINITY;
@@ -266,8 +272,9 @@ function trialCost(
   const centerX = (buildable.minX + buildable.maxX) / 2;
   const centerY = (buildable.minY + buildable.maxY) / 2;
   const compactnessBias = Math.hypot(trial.x - centerX, trial.y - centerY) * 0.025;
+  const grammarCost = spatialGrammarPlacementCost(trial, site, config.grammar ?? {});
 
-  return relationCost(trial, placed, program) + zoningCost(trial, site) + compactnessBias;
+  return relationCost(trial, placed, program) + zoningCost(trial, site) + compactnessBias + grammarCost;
 }
 
 function touchingTrials(
@@ -352,7 +359,7 @@ function choosePlacement(
   let bestCost = Number.POSITIVE_INFINITY;
 
   for (const trial of trials) {
-    const cost = trialCost(trial, placed, program, site);
+    const cost = trialCost(trial, placed, program, site, config);
     if (cost < bestCost) {
       best = trial;
       bestCost = cost;
@@ -362,7 +369,7 @@ function choosePlacement(
   if (best) return best;
 
   for (const trial of scanTrials(template, site, config, rng)) {
-    const cost = trialCost(trial, placed, program, site);
+    const cost = trialCost(trial, placed, program, site, config);
     if (cost < bestCost) {
       best = trial;
       bestCost = cost;
