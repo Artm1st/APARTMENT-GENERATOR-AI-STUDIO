@@ -134,7 +134,8 @@ export interface GeometryIssue {
     | "MISSING_REQUIRED_TOUCH"
     | "FORBIDDEN_TOUCH"
     | "BROKEN_DIRECT_ACCESS"
-    | "MISSING_EXTERIOR_OPENING";
+    | "MISSING_EXTERIOR_OPENING"
+    | "DISCONNECTED_CIRCULATION";
   severity: "error" | "warning";
   message: string;
   spaceIds: string[];
@@ -150,6 +151,7 @@ export interface CandidateScore {
   privacy: number;
   areaEfficiency: number;
   structuralRegularity: number;
+  zoning: number;
   issues: GeometryIssue[];
 }
 

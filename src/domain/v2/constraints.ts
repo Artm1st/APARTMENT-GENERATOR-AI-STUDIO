@@ -39,6 +39,65 @@ function hasValidExteriorWindow(topology: FloorTopology, spaceId: string): boole
   );
 }
 
+function validateCirculationConnectivity(
+  spaces: LayoutSpace[],
+  topology: FloorTopology
+): GeometryIssue[] {
+  const issues: GeometryIssue[] = [];
+  const floors = [...new Set(spaces.map((space) => space.floor))];
+
+  for (const floor of floors) {
+    const interior = spaces.filter(
+      (space) =>
+        space.floor === floor &&
+        space.type !== "patio" &&
+        space.type !== "terrace"
+    );
+    if (interior.length <= 1) continue;
+
+    const eligibleIds = new Set(interior.map((space) => space.id));
+    const graph = new Map<string, Set<string>>(
+      interior.map((space) => [space.id, new Set<string>()])
+    );
+
+    for (const opening of topology.openings) {
+      if (opening.type !== "door" || !opening.spaceBId) continue;
+      if (!eligibleIds.has(opening.spaceAId) || !eligibleIds.has(opening.spaceBId)) continue;
+      graph.get(opening.spaceAId)?.add(opening.spaceBId);
+      graph.get(opening.spaceBId)?.add(opening.spaceAId);
+    }
+
+    const root =
+      interior.find((space) => space.type === "corridor") ??
+      interior.find((space) => space.type === "living") ??
+      interior.find((space) => space.type === "dining") ??
+      interior[0];
+
+    const visited = new Set<string>([root.id]);
+    const queue = [root.id];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const neighbor of graph.get(current) ?? []) {
+        if (visited.has(neighbor)) continue;
+        visited.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+
+    const unreachable = interior.filter((space) => !visited.has(space.id));
+    if (unreachable.length > 0) {
+      issues.push({
+        code: "DISCONNECTED_CIRCULATION",
+        severity: "error",
+        message: `La circulación interior de la planta ${floor + 1} está desconectada. Ambientes sin ruta de puertas desde el núcleo principal: ${unreachable.map((space) => space.label).join(", ")}.`,
+        spaceIds: unreachable.map((space) => space.id),
+      });
+    }
+  }
+
+  return issues;
+}
+
 export function validateHardGeometryConstraints(
   program: ArchitecturalProgram,
   spaces: LayoutSpace[],
@@ -141,6 +200,7 @@ export function validateHardGeometryConstraints(
     }
   }
 
+  issues.push(...validateCirculationConnectivity(spaces, topology));
   return issues;
 }
 
