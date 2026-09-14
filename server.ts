@@ -8,6 +8,7 @@ import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
+import { registerV2Routes } from "./src/server/v2Routes";
 
 dotenv.config();
 
@@ -37,6 +38,7 @@ function getAI(): GoogleGenAI {
 }
 
 app.use(express.json());
+registerV2Routes(app, getAI);
 
 // API route: Generative Floor Plan
 app.post("/api/generate-floorplan", async (req, res) => {
@@ -132,7 +134,7 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
           systemInstruction,
           responseMimeType: "application/json",
           responseSchema,
-          temperature: 0.2, // Low temperature for high structure consistency
+          temperature: 0.2,
         },
       });
 
@@ -158,7 +160,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
 
       const roomsList: any[] = [];
 
-      // 1. Central corridor (Pasillo Distribuidor)
       roomsList.push({
         id: "pasillo",
         name: "Hall Distribuidor",
@@ -169,7 +170,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         suggestedFurniture: ["plant"]
       });
 
-      // 2. Sala (Living)
       roomsList.push({
         id: "sala",
         name: "Sala de Estar",
@@ -180,7 +180,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         suggestedFurniture: ["sofa", "tv", "plant"]
       });
 
-      // 3. Cocina
       roomsList.push({
         id: "cocina",
         name: kitchenOpen ? "Cocina Americana" : "Cocina Tradicional",
@@ -191,7 +190,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         suggestedFurniture: ["fridge", "stove", "sink"]
       });
 
-      // 4. Comedor
       roomsList.push({
         id: "comedor",
         name: "Comedor Familiar",
@@ -202,7 +200,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         suggestedFurniture: ["dining_table", "chair", "plant"]
       });
 
-      // 5. Bedrooms
       for (let i = 1; i <= bedrooms; i++) {
         const isPrincipal = i === 1;
         const bId = `dormitorio_${i}`;
@@ -223,7 +220,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         }
       }
 
-      // 6. Bathrooms
       for (let i = 1; i <= bathrooms; i++) {
         const isSuite = i === 1 && bedrooms >= 1;
         const bId = `bano_${i}`;
@@ -251,7 +247,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         }
       }
 
-      // 7. Garage
       if (withGarage) {
         roomsList.push({
           id: "cochera",
@@ -264,7 +259,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         });
       }
 
-      // 8. Studio
       if (withStudio) {
         roomsList.push({
           id: "estudio",
@@ -279,7 +273,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         if (pasilloRoom) pasilloRoom.connections.push("estudio");
       }
 
-      // 9. Laundry
       if (withLaundry) {
         roomsList.push({
           id: "lavanderia",
@@ -292,7 +285,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         });
       }
 
-      // 10. Garden
       if (withGarden) {
         roomsList.push({
           id: "patio",
@@ -314,7 +306,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
       };
     }
 
-    // Map furniture types to dimensions and clean names
     const furniturePresets: Record<string, { name: string; w: number; h: number }> = {
       sofa: { name: "Sofá 3 Cuerpos", w: 2.0, h: 0.9 },
       tv: { name: "Mueble TV", w: 1.6, h: 0.45 },
@@ -331,38 +322,27 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
       plant: { name: "Planta de Maceta", w: 0.5, h: 0.5 },
     };
 
-    // Hydrate layout: give initial non-overlapping layout positions
-    // Place them around the center with a slight random distribution
     const centerX = tWidth / 2;
     const centerY = tLength / 2;
 
     const hydratedRooms = planData.rooms.map((room: any, index: number) => {
-      // Place them spiraling or slightly offset so the relaxation simulation separates them beautifully
       const angle = (index / planData.rooms.length) * Math.PI * 2;
-      const radius = 2.0; // 2 meters initial radius
+      const radius = 2.0;
       const initialX = Number((centerX + Math.cos(angle) * radius).toFixed(2));
       const initialY = Number((centerY + Math.sin(angle) * radius).toFixed(2));
 
-      // Standardize types
       const rType = room.type || "other";
       const roomColor = colors[rType as keyof typeof colors] || colors.other;
 
       const rW = Number(room.targetW) || 4.0;
       const rH = Number(room.targetH) || 4.0;
 
-      // Safe mapping for connections
       const connections: string[] = Array.isArray(room.connections)
         ? room.connections.map((c: any) => String(c))
         : [];
 
-      // Ensure openings has standard empty or template doors
       const openings: any[] = [];
-      
-      // Auto-assign doors for rooms connected to other rooms
       connections.forEach((connId: string, cIndex: number) => {
-        // Just prepare a standard door direction
-        // In the interactive editor, the user can change or add openings
-        // Let's suggest standard doors along the edges
         const sides = ["bottom", "top", "left", "right"];
         const side = sides[cIndex % 4] as "bottom" | "top" | "left" | "right";
         openings.push({
@@ -375,7 +355,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         });
       });
 
-      // Add a window by default for ventilation on external sides (except corridor)
       if (rType !== "corridor" && rType !== "other") {
         openings.push({
           id: `win_${room.id}`,
@@ -386,7 +365,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         });
       }
 
-      // Ensure every non-corridor room has at least one door to keep it connected/unsealed
       const hasDoor = openings.some(o => o.type === "door");
       if (!hasDoor && rType !== "corridor") {
         const corridorRoom = planData.rooms.find((r: any) => r.type === "corridor");
@@ -401,7 +379,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         });
       }
 
-      // Hydrate recommended furniture list
       const suggestedList = room.suggestedFurniture || [];
       const furnitureItems: any[] = [];
 
@@ -409,7 +386,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         const preset = furniturePresets[fType];
         if (!preset) return;
 
-        // Position on clean grid layout so they look visually sorted
         const slots = [
           { dx: -0.25, dy: -0.25 },
           { dx: 0.25, dy: 0.25 },
@@ -422,7 +398,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         let suggestedX = rW * slot.dx;
         let suggestedY = rH * slot.dy;
 
-        // Keep inside boundaries cleanly
         const maxOffsetX = Math.max(0, rW / 2 - preset.w / 2 - 0.2);
         const maxOffsetY = Math.max(0, rH / 2 - preset.h / 2 - 0.2);
         const posX = Number(Math.max(-maxOffsetX, Math.min(maxOffsetX, suggestedX)).toFixed(2));
@@ -447,8 +422,8 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
         type: rType,
         x: initialX,
         y: initialY,
-        w: rW, // starts at target width
-        h: rH, // starts at target height
+        w: rW,
+        h: rH,
         targetW: rW,
         targetH: rH,
         color: roomColor,
@@ -469,7 +444,6 @@ El terreno mide ${tWidth}m de ancho por ${tLength}m de largo. Distribuye adecuad
   }
 });
 
-// Configure Vite integration
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
