@@ -24,8 +24,7 @@ export type DesignDimension =
   | "acoustic_separation"
   | "service_efficiency"
   | "storage"
-  | "constructability"
-  | "information_management";
+  | "constructability";
 
 export interface KnowledgeSource {
   id: string;
@@ -36,7 +35,7 @@ export interface KnowledgeSource {
   locator?: string;
   url?: string;
   authority: KnowledgeAuthority;
-  jurisdiction?: "PE" | "CL" | "international";
+  jurisdiction?: "PE" | "international";
 }
 
 export interface DesignPrinciple {
@@ -107,26 +106,6 @@ export const KNOWLEDGE_SOURCES: KnowledgeSource[] = [
     url: "https://www.gob.pe/institucion/vivienda/normas-legales/8267220-228-2026-vivienda",
     authority: "official_guidance",
     jurisdiction: "PE",
-  },
-  {
-    id: "plan-bim-peru-guide-2023",
-    title: "Guía Nacional BIM: Gestión de la información para inversiones desarrolladas con BIM",
-    authorOrInstitution: "Ministerio de Economía y Finanzas del Perú - Plan BIM Perú",
-    year: 2023,
-    editionOrVersion: "Versión 2023",
-    url: "https://www.mef.gob.pe/planbimperu/recursosbim.html",
-    authority: "official_guidance",
-    jurisdiction: "PE",
-  },
-  {
-    id: "planbim-chile-2019",
-    title: "Estándar BIM para Proyectos Públicos",
-    authorOrInstitution: "Planbim CORFO Chile",
-    year: 2019,
-    editionOrVersion: "v1.1",
-    url: "https://planbim.cl/documentos/estandar-bim-para-proyectos-publicos/",
-    authority: "official_guidance",
-    jurisdiction: "CL",
   },
   {
     id: "hillier-hanson-1984",
@@ -245,19 +224,6 @@ export const DESIGN_PRINCIPLES: DesignPrinciple[] = [
     weight: 1,
     enabledByDefault: true,
     tags: ["RNE", "compliance"],
-  },
-  {
-    id: "bim-information-not-design-score",
-    title: "BIM como capa de información, no como criterio estético",
-    dimension: "information_management",
-    evaluationMode: "performance_target",
-    sourceIds: ["plan-bim-peru-guide-2023", "planbim-chile-2019"],
-    statement: "Los requisitos BIM deben definir estructura, trazabilidad, nivel de información e interoperabilidad del producto sin decidir por sí mismos la calidad arquitectónica de la planta.",
-    rationale: "Separar información BIM de diseño evita confundir interoperabilidad con habitabilidad o calidad espacial.",
-    appliesTo: ["single_family_house", "apartment_unit"],
-    weight: 1,
-    enabledByDefault: true,
-    tags: ["BIM", "IFC", "information"],
   },
 ];
 
