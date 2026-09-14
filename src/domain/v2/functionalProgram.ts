@@ -52,8 +52,6 @@ function upsertRelation(
     return;
   }
 
-  // If a stronger compatible relation already exists, keep it instead of
-  // duplicating the pair with a weaker relation.
   const stronger = relations.find(
     (item) =>
       pairKey(item.a, item.b) === key &&
@@ -64,13 +62,27 @@ function upsertRelation(
   relations.push(relation);
 }
 
-function byType(program: ArchitecturalProgram, type: ProgramSpace["type"]): ProgramSpace[] {
-  return program.spaces.filter((space) => space.type === type);
+function floorOf(space: ProgramSpace): number {
+  return space.floor ?? 0;
 }
 
-function first(program: ArchitecturalProgram, types: ProgramSpace["type"][]): ProgramSpace | undefined {
+function byType(
+  spaces: ProgramSpace[],
+  type: ProgramSpace["type"],
+  floor?: number
+): ProgramSpace[] {
+  return spaces.filter(
+    (space) => space.type === type && (floor === undefined || floorOf(space) === floor)
+  );
+}
+
+function firstOnFloor(
+  spaces: ProgramSpace[],
+  floor: number,
+  types: ProgramSpace["type"][]
+): ProgramSpace | undefined {
   for (const type of types) {
-    const match = program.spaces.find((space) => space.type === type);
+    const match = spaces.find((space) => space.type === type && floorOf(space) === floor);
     if (match) return match;
   }
   return undefined;
@@ -91,7 +103,7 @@ function addDirect(
   id: string,
   weight = 0.95
 ): void {
-  if (!a || !b) return;
+  if (!a || !b || floorOf(a) !== floorOf(b)) return;
   upsertRelation(relations, {
     id,
     a: a.id,
@@ -101,107 +113,143 @@ function addDirect(
   });
 }
 
+function ensureDistributionSpaces(spaces: ProgramSpace[]): ProgramSpace[] {
+  const result = spaces.map((space) => ({ ...space }));
+  const floors = [...new Set(result.map(floorOf))];
+
+  for (const floor of floors) {
+    const floorSpaces = result.filter((space) => floorOf(space) === floor);
+    const hasCorridor = floorSpaces.some((space) => space.type === "corridor");
+    if (hasCorridor) continue;
+
+    const privateOrSanitary = floorSpaces.filter(
+      (space) => space.type === "bedroom" || space.type === "bathroom" || space.type === "studio"
+    ).length;
+    const needsDistribution = privateOrSanitary >= 2 || floorSpaces.length >= 6;
+    if (!needsDistribution) continue;
+
+    result.push({
+      id: `functional_distribuidor_n${floor + 1}`,
+      type: "corridor",
+      label: floor === 0 ? "Hall distribuidor" : `Distribuidor nivel ${floor + 1}`,
+      targetArea: 3.5,
+      privacy: "semi_private",
+      requiresExteriorOpening: false,
+      wetArea: false,
+      floor,
+    });
+  }
+
+  return result;
+}
+
 /**
  * Adds deterministic design heuristics that make the spatial program more
  * functional before geometry is generated. These are design heuristics, not
  * regulatory claims.
  */
 export function enrichFunctionalProgram(program: ArchitecturalProgram): ArchitecturalProgram {
+  const spaces = ensureDistributionSpaces(program.spaces);
   const relations = program.relations.map((relation) => ({ ...relation }));
+  const floors = [...new Set(spaces.map(floorOf))];
 
-  const corridor = first(program, ["corridor"]);
-  const living = first(program, ["living"]);
-  const dining = first(program, ["dining"]);
-  const kitchen = first(program, ["kitchen"]);
-  const circulationHub = corridor ?? dining ?? living;
+  for (const floor of floors) {
+    const corridor = firstOnFloor(spaces, floor, ["corridor"]);
+    const stair = firstOnFloor(spaces, floor, ["stair"]);
+    const living = firstOnFloor(spaces, floor, ["living"]);
+    const dining = firstOnFloor(spaces, floor, ["dining"]);
+    const kitchen = firstOnFloor(spaces, floor, ["kitchen"]);
+    const circulationHub = corridor ?? stair ?? dining ?? living;
 
-  // Social sequence: living ↔ dining ↔ kitchen.
-  addDirect(relations, living, dining, "functional_living_dining", 1);
-  addDirect(relations, kitchen, dining ?? living, "functional_kitchen_social", 1);
+    addDirect(relations, living, dining, `functional_living_dining_n${floor}`, 1);
+    addDirect(relations, kitchen, dining ?? living, `functional_kitchen_social_n${floor}`, 1);
+    addDirect(relations, stair, corridor ?? living ?? dining, `functional_stair_hub_n${floor}`, 1);
 
-  // Bedrooms should not become geometrically trapped. If Gemini already gave
-  // a direct access (for example to a suite vestibule), preserve it; otherwise
-  // connect the room to the main circulation hub.
-  for (const bedroom of byType(program, "bedroom")) {
-    if (!hasAnyDirectAccess(relations, bedroom.id)) {
-      addDirect(
-        relations,
-        bedroom,
-        circulationHub,
-        `functional_${bedroom.id}_circulation`,
-        1
-      );
-    }
-  }
-
-  // Common bathrooms need access from circulation. Bathrooms explicitly tied
-  // to a bedroom by Gemini are treated as possible en-suite bathrooms.
-  for (const bathroom of byType(program, "bathroom")) {
-    if (!hasAnyDirectAccess(relations, bathroom.id)) {
-      addDirect(
-        relations,
-        bathroom,
-        circulationHub,
-        `functional_${bathroom.id}_circulation`,
-        0.95
-      );
-    }
-  }
-
-  // Laundry belongs to the service/wet zone and should connect to kitchen or
-  // general circulation instead of floating independently.
-  for (const laundry of byType(program, "laundry")) {
-    if (!hasAnyDirectAccess(relations, laundry.id)) {
-      addDirect(
-        relations,
-        laundry,
-        kitchen ?? circulationHub,
-        `functional_${laundry.id}_service`,
-        0.9
-      );
-    }
-  }
-
-  // Garage: prefer a direct route into a hall/circulation zone, but keep the
-  // bedrooms away from garage walls when there is no explicit contrary intent.
-  for (const garage of byType(program, "garage")) {
-    if (!hasAnyDirectAccess(relations, garage.id)) {
-      addDirect(
-        relations,
-        garage,
-        corridor ?? living ?? dining,
-        `functional_${garage.id}_entry`,
-        0.9
-      );
-    }
-
-    for (const bedroom of byType(program, "bedroom")) {
-      upsertRelation(relations, {
-        id: `functional_${garage.id}_${bedroom.id}_separation`,
-        a: garage.id,
-        b: bedroom.id,
-        kind: "must_not_touch",
-        weight: 0.9,
+    for (const bedroom of byType(spaces, "bedroom", floor)) {
+      const hasSameFloorDirect = relations.some((relation) => {
+        if (relation.kind !== "direct_access") return false;
+        const otherId = relation.a === bedroom.id ? relation.b : relation.b === bedroom.id ? relation.a : null;
+        if (!otherId) return false;
+        const other = spaces.find((space) => space.id === otherId);
+        return Boolean(other && floorOf(other) === floor);
       });
+      if (!hasSameFloorDirect) {
+        addDirect(relations, bedroom, circulationHub, `functional_${bedroom.id}_circulation`, 1);
+      }
     }
-  }
 
-  // Keep wet/service spaces reasonably close without forcing every bathroom to
-  // share a wall with the kitchen.
-  for (const bathroom of byType(program, "bathroom")) {
-    if (kitchen) {
-      upsertRelation(relations, {
-        id: `functional_wet_${bathroom.id}_${kitchen.id}`,
-        a: bathroom.id,
-        b: kitchen.id,
-        kind: "near",
-        weight: 0.45,
+    for (const bathroom of byType(spaces, "bathroom", floor)) {
+      const hasSameFloorDirect = relations.some((relation) => {
+        if (relation.kind !== "direct_access") return false;
+        const otherId = relation.a === bathroom.id ? relation.b : relation.b === bathroom.id ? relation.a : null;
+        if (!otherId) return false;
+        const other = spaces.find((space) => space.id === otherId);
+        return Boolean(other && floorOf(other) === floor && other.type === "bedroom");
       });
+
+      if (!hasSameFloorDirect) {
+        // Prefer a circulation/filter space. Only fall back to a social hub if
+        // the program truly lacks distribution, which v3 normally adds first.
+        addDirect(
+          relations,
+          bathroom,
+          corridor ?? stair ?? dining ?? living,
+          `functional_${bathroom.id}_circulation`,
+          0.95
+        );
+      }
+    }
+
+    for (const laundry of byType(spaces, "laundry", floor)) {
+      if (!hasAnyDirectAccess(relations, laundry.id)) {
+        addDirect(
+          relations,
+          laundry,
+          kitchen ?? corridor ?? stair,
+          `functional_${laundry.id}_service`,
+          0.9
+        );
+      }
+    }
+
+    for (const garage of byType(spaces, "garage", floor)) {
+      if (!hasAnyDirectAccess(relations, garage.id)) {
+        addDirect(
+          relations,
+          garage,
+          corridor ?? living ?? dining,
+          `functional_${garage.id}_entry`,
+          0.9
+        );
+      }
+
+      for (const bedroom of byType(spaces, "bedroom", floor)) {
+        upsertRelation(relations, {
+          id: `functional_${garage.id}_${bedroom.id}_separation`,
+          a: garage.id,
+          b: bedroom.id,
+          kind: "must_not_touch",
+          weight: 0.9,
+        });
+      }
+    }
+
+    for (const bathroom of byType(spaces, "bathroom", floor)) {
+      if (kitchen) {
+        upsertRelation(relations, {
+          id: `functional_wet_${bathroom.id}_${kitchen.id}`,
+          a: bathroom.id,
+          b: kitchen.id,
+          kind: "near",
+          weight: 0.4,
+        });
+      }
     }
   }
 
   return {
     ...program,
+    spaces,
     relations,
   };
 }
