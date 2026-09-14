@@ -1,0 +1,6 @@
+{
+  "name": "Plataforma de Diseño Arquitectónico Generativo",
+  "description": "Plataforma interactiva para el diseño generativo de planos arquitectónicos basada en IA, con simulación de fuerzas magnéticas, editor 2D, visualización 3D e importación/exportación a DXF y SVG.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
