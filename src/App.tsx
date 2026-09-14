@@ -3,160 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from "react";
-import { Room, Terrain, PhysicsConfig } from "./types";
+import { useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, Cpu, Eye, Layers, LayoutGrid, RotateCcw, Sparkles } from "lucide-react";
+import type { PhysicsConfig, Room, Terrain } from "./types";
 import FloorPlanCanvas from "./components/FloorPlanCanvas";
 import ThreeDView from "./components/ThreeDView";
 import EditorSidebar from "./components/EditorSidebar";
+import V2HouseholdDesignSidebar from "./components/V2HouseholdDesignSidebar";
 import MagnetizerControls from "./components/MagnetizerControls";
 import { relaxRooms, snapAllToGrid } from "./utils/physics";
 import { generateRandomLayout } from "./utils/generators";
-import { Sparkles, LayoutGrid, RotateCcw, AlertTriangle, Eye, Layers, Cpu, CheckCircle2 } from "lucide-react";
-
-const INITIAL_ROOMS: Room[] = [
-  {
-    id: "sala",
-    name: "Sala / Estar",
-    type: "living",
-    x: 6.0,
-    y: 7.0,
-    w: 5.0,
-    h: 4.0,
-    targetW: 5.0,
-    targetH: 4.0,
-    color: "#FEF3C7",
-    connections: ["cocina", "pasillo"],
-    openings: [
-      { id: "win_sala", type: "window", side: "bottom", offset: 0.5, width: 2.0 },
-      { id: "door_sala_pasillo", type: "door", side: "top", offset: 0.8, width: 0.9 },
-    ],
-    furniture: [
-      { id: "s1", type: "sofa", name: "Sofá Familiar", x: 0, y: -1.2, w: 2.0, h: 0.9, rotation: 0 },
-      { id: "s2", type: "tv", name: "Mueble TV", x: 0, y: 1.5, w: 1.6, h: 0.45, rotation: 180 },
-      { id: "s3", type: "plant", name: "Ficus Maceta", x: -2.0, y: -1.2, w: 0.5, h: 0.5, rotation: 0 },
-    ],
-  },
-  {
-    id: "cocina",
-    name: "Cocina Americana",
-    type: "kitchen",
-    x: 3.5,
-    y: 11.5,
-    w: 3.5,
-    h: 3.0,
-    targetW: 3.5,
-    targetH: 3.0,
-    color: "#FEE2E2",
-    connections: ["sala"],
-    openings: [
-      { id: "win_coc", type: "window", side: "left", offset: 0.5, width: 1.2 },
-    ],
-    furniture: [
-      { id: "k1", type: "fridge", name: "Nevera", x: -1.2, y: -0.9, w: 0.8, h: 0.8, rotation: 90 },
-      { id: "k2", type: "stove", name: "Encimera", x: 0, y: -1.0, w: 0.75, h: 0.6, rotation: 0 },
-      { id: "k3", type: "sink", name: "Fregadero", x: 1.2, y: -0.9, w: 0.7, h: 0.55, rotation: 270 },
-    ],
-  },
-  {
-    id: "dormitorio",
-    name: "Dormitorio Principal",
-    type: "bedroom",
-    x: 8.5,
-    y: 13.0,
-    w: 4.5,
-    h: 4.0,
-    targetW: 4.5,
-    targetH: 4.0,
-    color: "#DBEAFE",
-    connections: ["pasillo", "bano_privado"],
-    openings: [
-      { id: "win_dorm", type: "window", side: "right", offset: 0.5, width: 1.5 },
-      { id: "door_dorm_bano", type: "door", side: "top", offset: 0.2, width: 0.8 },
-    ],
-    furniture: [
-      { id: "b1", type: "bed", name: "Cama King", x: 0, y: 0.5, w: 1.8, h: 2.0, rotation: 180 },
-      { id: "b2", type: "wardrobe", name: "Ropero", x: -1.8, y: -1.0, w: 1.5, h: 0.6, rotation: 90 },
-    ],
-  },
-  {
-    id: "pasillo",
-    name: "Pasillo Distribuidor",
-    type: "corridor",
-    x: 6.0,
-    y: 11.5,
-    w: 1.2,
-    h: 4.0,
-    targetW: 1.2,
-    targetH: 4.0,
-    color: "#F3F4F6",
-    connections: ["sala", "dormitorio", "bano"],
-    openings: [
-      { id: "door_pas_bano", type: "door", side: "left", offset: 0.8, width: 0.8 },
-    ],
-    furniture: [],
-  },
-  {
-    id: "bano",
-    name: "Baño Completo",
-    type: "bathroom",
-    x: 3.5,
-    y: 15.5,
-    w: 2.5,
-    h: 2.0,
-    targetW: 2.5,
-    targetH: 2.0,
-    color: "#E0F2FE",
-    connections: ["pasillo"],
-    openings: [
-      { id: "win_bano", type: "window", side: "left", offset: 0.3, width: 0.6 },
-    ],
-    furniture: [
-      { id: "ba1", type: "toilet", name: "Inodoro", x: -0.8, y: -0.4, w: 0.45, h: 0.7, rotation: 90 },
-      { id: "ba2", type: "sink", name: "Lavabo", x: -0.2, y: -0.6, w: 0.6, h: 0.5, rotation: 0 },
-      { id: "ba3", type: "shower", name: "Ducha", x: 0.8, y: 0.5, w: 0.9, h: 0.9, rotation: 0 },
-    ],
-  },
-  {
-    id: "bano_privado",
-    name: "Baño Suite",
-    type: "bathroom",
-    x: 8.5,
-    y: 17.0,
-    w: 2.2,
-    h: 1.6,
-    targetW: 2.2,
-    targetH: 1.6,
-    color: "#E0F2FE",
-    connections: ["dormitorio"],
-    openings: [
-      { id: "win_bano_p", type: "window", side: "right", offset: 0.5, width: 0.6 },
-    ],
-    furniture: [
-      { id: "bp1", type: "toilet", name: "Inodoro", x: -0.6, y: -0.2, w: 0.45, h: 0.7, rotation: 90 },
-      { id: "bp2", type: "sink", name: "Lavamanos", x: 0.4, y: -0.4, w: 0.6, h: 0.5, rotation: 0 },
-    ],
-  },
-];
-
-const INITIAL_TERRAIN: Terrain = {
-  width: 12.0,
-  length: 20.0,
-  setbackFront: 4.0,
-  setbackBack: 2.0,
-  setbackLeft: 1.5,
-  setbackRight: 1.5,
-  hasPerimeterWall: true,
-};
-
-const INITIAL_PHYSICS_CONFIG: PhysicsConfig = {
-  attractionStrength: 4.5,
-  repulsionStrength: 7.0,
-  boundaryStrength: 5.5,
-  gridSnap: true,
-  gridSize: 0.1,
-  running: false,
-  corridorAlignment: 3.5,
-};
+import { INITIAL_PHYSICS_CONFIG, INITIAL_ROOMS, INITIAL_TERRAIN } from "./config/defaultProject";
 
 type EngineMode = "legacy" | "v2";
 
@@ -170,7 +27,18 @@ interface V2Score {
   privacy: number;
   areaEfficiency: number;
   structuralRegularity: number;
+  zoning: number;
   issues: Array<{ code: string; severity: string; message: string; spaceIds: string[] }>;
+}
+
+interface V2StrategyInfo {
+  id: string;
+  title: string;
+  description: string;
+  suitability: number;
+  reasons: string[];
+  generated: number;
+  valid: number;
 }
 
 interface V2CandidateOption {
@@ -178,11 +46,19 @@ interface V2CandidateOption {
   seed?: number;
   score?: V2Score;
   rooms: Room[];
+  strategy?: V2StrategyInfo;
   topology?: {
     sharedBoundaryCount: number;
     exteriorBoundaryCount: number;
     openingCount: number;
   };
+}
+
+interface V2GenerationStats {
+  generated: number;
+  valid: number;
+  returned: number;
+  strategies?: string[];
 }
 
 export default function App() {
@@ -192,12 +68,11 @@ export default function App() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"2d" | "3d">("2d");
   const [planName, setPlanName] = useState("Vivienda Unifamiliar Compacta");
-  const [engineMode, setEngineMode] = useState<EngineMode>("legacy");
+  const [engineMode, setEngineMode] = useState<EngineMode>("v2");
   const [v2Candidates, setV2Candidates] = useState<V2CandidateOption[]>([]);
   const [activeV2Candidate, setActiveV2Candidate] = useState(0);
-  const [v2GenerationStats, setV2GenerationStats] = useState<{ generated: number; valid: number; returned: number } | null>(null);
+  const [v2GenerationStats, setV2GenerationStats] = useState<V2GenerationStats | null>(null);
   const [v2BaseSeed, setV2BaseSeed] = useState<number | null>(null);
-
   const [aiLoading, setAiLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -208,7 +83,7 @@ export default function App() {
       setRooms(generated.rooms);
       setTerrain(generated.terrain);
       setPlanName(generated.planName);
-    } catch (e) {
+    } catch {
       setRooms(INITIAL_ROOMS);
       setTerrain(INITIAL_TERRAIN);
       setPlanName("Vivienda Unifamiliar Compacta");
@@ -237,14 +112,14 @@ export default function App() {
   }, [physicsConfig.running, terrain, physicsConfig]);
 
   const handleResolveCollisions = () => {
-    let tempRooms = rooms.map((r) => ({ ...r }));
+    let tempRooms = rooms.map((room) => ({ ...room }));
     const tempConfig: PhysicsConfig = {
       ...physicsConfig,
       gridSnap: false,
-      repulsionStrength: 10.0,
+      repulsionStrength: 10,
       attractionStrength: 1.5,
       boundaryStrength: 5.5,
-      corridorAlignment: 2.0,
+      corridorAlignment: 2,
     };
 
     for (let i = 0; i < 100; i++) {
@@ -261,9 +136,8 @@ export default function App() {
   const handleResetSimulation = () => {
     const centerX = terrain.width / 2;
     const centerY = terrain.length / 2;
-
-    const resetRooms = rooms.map((room, idx) => {
-      const angle = (idx / rooms.length) * Math.PI * 2;
+    const resetRooms = rooms.map((room, index) => {
+      const angle = (index / rooms.length) * Math.PI * 2;
       const radius = 1.5;
       return {
         ...room,
@@ -271,7 +145,6 @@ export default function App() {
         y: Number((centerY + Math.sin(angle) * radius).toFixed(2)),
       };
     });
-
     setRooms(resetRooms);
   };
 
@@ -285,13 +158,16 @@ export default function App() {
   };
 
   const handleDeleteRoom = (roomId: string) => {
-    setRooms(rooms.filter((r) => r.id !== roomId));
+    setRooms(rooms.filter((room) => room.id !== roomId));
     if (selectedRoomId === roomId) setSelectedRoomId(null);
   };
 
   const handleUpdateRoom = (updatedRoom: Room) => {
-    setRooms(rooms.map((r) => (r.id === updatedRoom.id ? updatedRoom : r)));
+    setRooms(rooms.map((room) => (room.id === updatedRoom.id ? updatedRoom : room)));
   };
+
+  const candidateTitle = (candidate: V2CandidateOption, index: number): string =>
+    candidate.strategy?.title ?? `Alternativa ${String.fromCharCode(65 + index)}`;
 
   const applyV2Candidate = (index: number) => {
     const candidate = v2Candidates[index];
@@ -302,7 +178,7 @@ export default function App() {
     setActiveTab("2d");
     setPhysicsConfig((prev) => ({ ...prev, running: false }));
     const score = candidate.score?.total ?? 0;
-    setPlanName(`Engine v2 · Alternativa ${String.fromCharCode(65 + index)} · ${score}/100`);
+    setPlanName(`${candidateTitle(candidate, index)} · ${score}/100`);
   };
 
   const changeEngineMode = (mode: EngineMode) => {
@@ -317,13 +193,16 @@ export default function App() {
     }
   };
 
-  const handleGeneratePlanWithAI = async (promptText: string, metadata?: any) => {
+  const handleGeneratePlanWithAI = async (promptText: string, metadata?: Record<string, unknown>) => {
     setAiLoading(true);
     setErrorMessage(null);
 
     try {
       const isV2 = engineMode === "v2";
       const endpoint = isV2 ? "/api/v2/generate-candidates" : "/api/generate-floorplan";
+      const householdAnswers = isV2 ? metadata?.householdAnswers : undefined;
+      const semanticProfileMode = isV2 ? metadata?.semanticProfileMode : undefined;
+
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -335,7 +214,9 @@ export default function App() {
           setbackBack: terrain.setbackBack,
           setbackLeft: terrain.setbackLeft,
           setbackRight: terrain.setbackRight,
-          candidateCount: isV2 ? 20 : undefined,
+          candidateCount: isV2 ? 30 : undefined,
+          householdAnswers,
+          semanticProfileMode,
           metadata,
         }),
       });
@@ -343,13 +224,13 @@ export default function App() {
       if (!response.ok) {
         let errMsg = "Fallo en la comunicación con el servidor de diseño.";
         const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
+        if (contentType?.includes("application/json")) {
           const errorData = await response.json();
           errMsg = errorData.error || errMsg;
         } else {
           const errorText = await response.text();
           errMsg = response.status === 504
-            ? "La generación con IA tardó demasiado y la conexión expiró (Gateway Timeout). Intente de nuevo con un plano más simple."
+            ? "La generación con IA tardó demasiado y la conexión expiró. Intenta nuevamente."
             : `Error del servidor (${response.status}): ${errorText.substring(0, 100)}`;
         }
         throw new Error(errMsg);
@@ -372,11 +253,11 @@ export default function App() {
         setActiveTab("2d");
         setPhysicsConfig((prev) => ({ ...prev, running: false }));
         const score = candidates[0].score?.total ?? 0;
-        setPlanName(`Engine v2 · Alternativa A · ${score}/100`);
+        setPlanName(`${candidateTitle(candidates[0], 0)} · ${score}/100`);
         return;
       }
 
-      if (data.rooms && data.rooms.length > 0) {
+      if (data.rooms?.length > 0) {
         setV2Candidates([]);
         setV2GenerationStats(null);
         setV2BaseSeed(null);
@@ -385,15 +266,13 @@ export default function App() {
         setSelectedRoomId(null);
         setActiveTab("2d");
         setPhysicsConfig((prev) => ({ ...prev, running: true }));
-        setTimeout(() => {
-          setPhysicsConfig((prev) => ({ ...prev, running: false }));
-        }, 1800);
+        setTimeout(() => setPhysicsConfig((prev) => ({ ...prev, running: false })), 1800);
       } else {
         throw new Error("No se devolvió un programa válido de habitaciones.");
       }
-    } catch (err: any) {
-      console.error(err);
-      setErrorMessage(err.message || "No se pudo conectar al generador generativo.");
+    } catch (error: any) {
+      console.error(error);
+      setErrorMessage(error.message || "No se pudo conectar al generador generativo.");
     } finally {
       setAiLoading(false);
     }
@@ -408,36 +287,40 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-md font-extrabold tracking-tight">DISEÑO ARQUITECTÓNICO GENERATIVO IA</h1>
-            <p className="text-[10px] text-slate-400 font-medium">Plataforma Profesional de Relajación Magnética y Distribución Espacial</p>
+            <p className="text-[10px] text-slate-400 font-medium">
+              {engineMode === "v2"
+                ? "Prediseño habitacional basado en familia, estrategias arquitectónicas y restricciones verificables"
+                : "Motor experimental anterior de distribución y relajación magnética"}
+            </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-1 flex items-center gap-1">
             <button
-              id="engine-mode-legacy"
-              onClick={() => changeEngineMode("legacy")}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${engineMode === "legacy" ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"}`}
-            >
-              Motor actual
-            </button>
-            <button
               id="engine-mode-v2"
               onClick={() => changeEngineMode("v2")}
               className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${engineMode === "v2" ? "bg-indigo-500 text-white shadow" : "text-slate-400 hover:text-white"}`}
             >
-              <Cpu className="w-3 h-3" /> Engine v2 Beta
+              <Cpu className="w-3 h-3" /> Engine v2
+            </button>
+            <button
+              id="engine-mode-legacy"
+              onClick={() => changeEngineMode("legacy")}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${engineMode === "legacy" ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"}`}
+            >
+              Motor anterior
             </button>
           </div>
 
-          <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-1 text-center min-w-[120px]">
-            <span className="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Plano Activo</span>
-            <span className="text-xs font-bold text-slate-100 truncate max-w-[200px] block">{planName}</span>
+          <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-1 text-center min-w-[150px]">
+            <span className="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Plano activo</span>
+            <span className="text-xs font-bold text-slate-100 truncate max-w-[220px] block">{planName}</span>
           </div>
 
           <div className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-1 text-center">
             <span className="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Dimensiones</span>
-            <span className="text-xs font-mono font-bold text-slate-100">{terrain.width}x{terrain.length}m</span>
+            <span className="text-xs font-mono font-bold text-slate-100">{terrain.width}×{terrain.length}m</span>
           </div>
 
           <div className="flex items-center">
@@ -446,15 +329,14 @@ export default function App() {
                 id="reset-entire-app-btn"
                 onClick={() => setShowResetConfirm(true)}
                 className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
-                title="Reiniciar todo al diseño por defecto"
               >
-                <RotateCcw className="w-3.5 h-3.5" /> Resetear Proyecto
+                <RotateCcw className="w-3.5 h-3.5" /> Resetear
               </button>
             ) : (
-              <div className="flex items-center gap-1.5 bg-slate-800 border border-red-500/50 px-2.5 py-1 rounded-xl animate-fade-in shadow-inner">
+              <div className="flex items-center gap-1.5 bg-slate-800 border border-red-500/50 px-2.5 py-1 rounded-xl shadow-inner">
                 <span className="text-[9px] font-bold text-red-400">¿Borrar todo?</span>
-                <button id="reset-confirm-yes" onClick={handleResetAll} className="bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">Sí</button>
-                <button id="reset-confirm-no" onClick={() => setShowResetConfirm(false)} className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">No</button>
+                <button onClick={handleResetAll} className="bg-red-600 text-white px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">Sí</button>
+                <button onClick={() => setShowResetConfirm(false)} className="bg-slate-700 text-slate-200 px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer">No</button>
               </div>
             )}
           </div>
@@ -465,9 +347,9 @@ export default function App() {
         <div className="bg-red-50 border-b border-red-200 px-6 py-3 flex items-center justify-between text-red-800 text-sm animate-fade-in">
           <span className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-red-600" />
-            <strong>Error del Generador:</strong> {errorMessage}
+            <strong>Error del generador:</strong> {errorMessage}
           </span>
-          <button onClick={() => setErrorMessage(null)} className="text-xs font-semibold underline hover:text-red-900">Descartar</button>
+          <button onClick={() => setErrorMessage(null)} className="text-xs font-semibold underline">Descartar</button>
         </div>
       )}
 
@@ -476,23 +358,20 @@ export default function App() {
           <div className="flex justify-between items-center bg-white border border-slate-200/80 p-2 rounded-2xl shadow-xs">
             <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
               <button
-                id="tab-select-2d"
                 onClick={() => setActiveTab("2d")}
-                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === "2d" ? "bg-white text-slate-950 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
+                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === "2d" ? "bg-white text-slate-950 shadow-xs" : "text-slate-500"}`}
               >
-                <Layers className="w-3.5 h-3.5" /> Vista 2D Técnica
+                <Layers className="w-3.5 h-3.5" /> Vista 2D
               </button>
               <button
-                id="tab-select-3d"
                 onClick={() => setActiveTab("3d")}
-                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === "3d" ? "bg-white text-slate-950 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
+                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === "3d" ? "bg-white text-slate-950 shadow-xs" : "text-slate-500"}`}
               >
-                <Eye className="w-3.5 h-3.5" /> Vista 3D Interactiva
+                <Eye className="w-3.5 h-3.5" /> Vista 3D
               </button>
             </div>
-
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-4">
-              {activeTab === "2d" ? "Modo: Dibujo Técnico & Edición" : "Modo: Recorrido Virtual"}
+              {activeTab === "2d" ? "Prediseño y edición" : "Volumen conceptual"}
             </div>
           </div>
 
@@ -501,15 +380,15 @@ export default function App() {
               <div className="flex flex-wrap justify-between gap-3 items-start mb-3">
                 <div>
                   <div className="flex items-center gap-2 text-sm font-bold text-indigo-100">
-                    <Sparkles className="w-4 h-4 text-indigo-300" /> Engine v2 Beta
+                    <Sparkles className="w-4 h-4 text-indigo-300" /> Estrategias para tu hogar
                   </div>
-                  <p className="text-[10px] text-indigo-300 mt-1">
-                    Generación determinista por restricciones. La relajación magnética automática queda desactivada para no alterar la solución evaluada.
+                  <p className="text-[10px] text-indigo-300 mt-1 max-w-xl">
+                    Cada alternativa representa una intención arquitectónica distinta. La afinidad indica qué tan bien responde la estrategia al perfil familiar; el score evalúa la solución geométrica resultante.
                   </p>
                 </div>
                 {v2GenerationStats && (
                   <div className="text-right text-[9px] text-indigo-300 font-mono">
-                    <div>{v2GenerationStats.generated} generadas · {v2GenerationStats.valid} válidas</div>
+                    <div>{v2GenerationStats.generated} candidatas · {v2GenerationStats.valid} válidas</div>
                     {v2BaseSeed !== null && <div>seed base: {v2BaseSeed}</div>}
                   </div>
                 )}
@@ -517,33 +396,53 @@ export default function App() {
 
               {v2Candidates.length === 0 ? (
                 <div className="border border-indigo-800 bg-indigo-900/40 rounded-xl p-3 text-[11px] text-indigo-200">
-                  Selecciona Engine v2 y genera un plano desde el panel derecho. Aquí aparecerán las tres mejores alternativas.
+                  Completa el perfil familiar en el panel derecho. Aquí aparecerán tres estrategias arquitectónicas comparables.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {v2Candidates.map((candidate, index) => {
                     const score = candidate.score;
+                    const strategy = candidate.strategy;
                     const isActive = activeV2Candidate === index;
                     const hardPass = score?.hardConstraintPass ?? false;
+                    const affinity = Math.round((strategy?.suitability ?? 0) * 100);
+
                     return (
                       <button
                         key={candidate.id}
                         onClick={() => applyV2Candidate(index)}
                         className={`text-left rounded-xl border p-3 transition-all cursor-pointer ${isActive ? "bg-white text-slate-900 border-white shadow-md" : "bg-indigo-900/60 border-indigo-700 hover:bg-indigo-900 text-white"}`}
                       >
-                        <div className="flex justify-between items-center gap-2 mb-1">
-                          <span className="text-xs font-extrabold">Alternativa {String.fromCharCode(65 + index)}</span>
+                        <div className="flex justify-between items-start gap-2 mb-1">
+                          <div>
+                            <span className={`text-[8px] uppercase tracking-wider font-black ${isActive ? "text-indigo-500" : "text-indigo-300"}`}>Alternativa {String.fromCharCode(65 + index)}</span>
+                            <div className="text-xs font-extrabold leading-tight mt-0.5">{candidateTitle(candidate, index)}</div>
+                          </div>
                           <span className={`text-lg font-black ${isActive ? "text-indigo-700" : "text-indigo-200"}`}>{score?.total ?? 0}</span>
                         </div>
-                        <div className={`flex items-center gap-1 text-[9px] font-bold ${hardPass ? (isActive ? "text-emerald-700" : "text-emerald-300") : (isActive ? "text-red-700" : "text-red-300")}`}>
+
+                        {strategy && (
+                          <>
+                            <div className={`text-[9px] mt-1 ${isActive ? "text-slate-500" : "text-indigo-200"}`}>{strategy.description}</div>
+                            <div className={`mt-2 text-[9px] font-extrabold ${isActive ? "text-violet-700" : "text-violet-300"}`}>Afinidad familiar {affinity}%</div>
+                            <div className={`mt-1 space-y-0.5 text-[8px] ${isActive ? "text-slate-500" : "text-indigo-300"}`}>
+                              {strategy.reasons.slice(0, 2).map((reason) => <div key={reason}>• {reason}</div>)}
+                            </div>
+                          </>
+                        )}
+
+                        <div className={`mt-2 flex items-center gap-1 text-[9px] font-bold ${hardPass ? (isActive ? "text-emerald-700" : "text-emerald-300") : (isActive ? "text-red-700" : "text-red-300")}`}>
                           {hardPass ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                          {hardPass ? "Hard constraints OK" : "Con restricciones pendientes"}
+                          {hardPass ? "Restricciones geométricas OK" : "Con restricciones pendientes"}
                         </div>
+
                         <div className={`mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[8px] ${isActive ? "text-slate-500" : "text-indigo-300"}`}>
-                          <span>Adyacencia {score?.adjacency ?? 0}/25</span>
-                          <span>Circulación {score?.circulation ?? 0}/20</span>
-                          <span>Compacidad {score?.compactness ?? 0}/15</span>
-                          <span>Luz {score?.daylight ?? 0}/15</span>
+                          <span>Adyacencia {score?.adjacency ?? 0}/24</span>
+                          <span>Circulación {score?.circulation ?? 0}/24</span>
+                          <span>Privacidad {score?.privacy ?? 0}/10</span>
+                          <span>Zonificación {score?.zoning ?? 0}/12</span>
+                          <span>Luz {score?.daylight ?? 0}/10</span>
+                          <span>Compacidad {score?.compactness ?? 0}/8</span>
                         </div>
                         <div className={`mt-2 text-[8px] font-mono ${isActive ? "text-slate-400" : "text-indigo-400"}`}>seed {candidate.seed ?? "—"}</div>
                       </button>
@@ -582,30 +481,39 @@ export default function App() {
             />
           ) : (
             <div className="bg-white border border-indigo-100 rounded-2xl p-3 text-[10px] text-slate-500 shadow-xs">
-              <strong className="text-indigo-700">Engine v2:</strong> el magnetizador está oculto mientras comparas candidatos para conservar exactamente la geometría y el score calculados. Puedes editar manualmente el plano después de seleccionar una alternativa.
+              <strong className="text-indigo-700">Engine v2:</strong> el magnetizador queda desactivado durante la comparación para no deformar una solución ya evaluada. Puedes editar manualmente después de elegir una estrategia.
             </div>
           )}
         </div>
 
         <div className="lg:col-span-4 flex flex-col gap-6">
-          <EditorSidebar
-            rooms={rooms}
-            terrain={terrain}
-            selectedRoomId={selectedRoomId}
-            onUpdateTerrain={setTerrain}
-            onSelectRoom={setSelectedRoomId}
-            onAddRoom={handleAddRoom}
-            onDeleteRoom={handleDeleteRoom}
-            onUpdateRoom={handleUpdateRoom}
-            onGeneratePlanWithAI={handleGeneratePlanWithAI}
-            aiLoading={aiLoading}
-            onResolveCollisions={engineMode === "legacy" ? handleResolveCollisions : undefined}
-          />
+          {engineMode === "v2" ? (
+            <V2HouseholdDesignSidebar
+              terrain={terrain}
+              onUpdateTerrain={setTerrain}
+              onGeneratePlanWithAI={handleGeneratePlanWithAI}
+              aiLoading={aiLoading}
+            />
+          ) : (
+            <EditorSidebar
+              rooms={rooms}
+              terrain={terrain}
+              selectedRoomId={selectedRoomId}
+              onUpdateTerrain={setTerrain}
+              onSelectRoom={setSelectedRoomId}
+              onAddRoom={handleAddRoom}
+              onDeleteRoom={handleDeleteRoom}
+              onUpdateRoom={handleUpdateRoom}
+              onGeneratePlanWithAI={handleGeneratePlanWithAI}
+              aiLoading={aiLoading}
+              onResolveCollisions={handleResolveCollisions}
+            />
+          )}
         </div>
       </main>
 
       <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 py-4 text-center text-[10px] font-semibold tracking-wider mt-12">
-        <p>© 2026 Plataforma de Diseño Arquitectónico Generativo. Desarrollado con Inteligencia Artificial.</p>
+        <p>© 2026 Plataforma de Prediseño Arquitectónico Generativo · Propuestas conceptuales sujetas a desarrollo profesional.</p>
       </footer>
     </div>
   );
