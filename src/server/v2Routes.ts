@@ -4,6 +4,7 @@ import { interpretArchitecturalProgram } from "../ai/v2ProgramInterpreter";
 import { interpretHouseholdNarrative } from "../ai/semanticHouseholdInterpreter";
 import { GeminiTemporarilyUnavailableError } from "../ai/modelResilience";
 import { enrichFunctionalProgram } from "../domain/v2/functionalProgram";
+import { applyArchitecturalGrammarV3 } from "../domain/v2/architecturalGrammarV3";
 import {
   encodeQuestionnaireDeterministically,
   mergeSemanticProfile,
@@ -17,6 +18,8 @@ import {
 import { generateStrategicAlternatives } from "../domain/v2/strategicCandidateGenerator";
 import type {
   ArchitecturalProgram,
+  EntrySide,
+  Hemisphere,
   LayoutCandidate,
   LayoutSpace,
   SiteConstraints,
@@ -69,9 +72,22 @@ function legacyRoomType(type: SpaceType): RoomType {
   }
 }
 
+function resolveEntrySide(value: unknown): EntrySide {
+  const candidate = String(value ?? "front") as EntrySide;
+  return ["front", "back", "left", "right"].includes(candidate) ? candidate : "front";
+}
+
+function resolveHemisphere(value: unknown): Hemisphere {
+  return String(value ?? "south") === "north" ? "north" : "south";
+}
+
 function resolveSite(body: Record<string, unknown>): SiteConstraints {
   const width = clamp(body.terrainWidth, 3, 200, 12);
   const length = clamp(body.terrainLength, 3, 300, 20);
+  const rawNorth = Number(body.northAngleDeg ?? 0);
+  const northAngleDeg = Number.isFinite(rawNorth)
+    ? ((rawNorth % 360) + 360) % 360
+    : 0;
 
   return {
     width,
@@ -80,6 +96,10 @@ function resolveSite(body: Record<string, unknown>): SiteConstraints {
     setbackBack: clamp(body.setbackBack, 0, length / 2, 0),
     setbackLeft: clamp(body.setbackLeft, 0, width / 2, 0),
     setbackRight: clamp(body.setbackRight, 0, width / 2, 0),
+    entrySide: resolveEntrySide(body.entrySide),
+    northAngleDeg,
+    hemisphere: resolveHemisphere(body.hemisphere),
+    levels: Math.floor(clamp(body.levels, 1, 4, 1)),
     source: "user-project-input",
   };
 }
@@ -173,6 +193,7 @@ function candidateToLegacyRooms(
       h: space.h,
       targetW: space.w,
       targetH: space.h,
+      floor: space.floor,
       color: COLORS[type],
       connections: connectionsForSpace(program, space.programSpaceId),
       openings: legacyOpeningsForSpace(candidate, space),
@@ -204,9 +225,6 @@ async function resolveHouseholdProfile(
   const answers = body.householdAnswers as HouseholdQuestionnaireAnswers;
   let profile = encodeQuestionnaireDeterministically(answers);
 
-  // Token-cost policy: semantic analysis is opt-in at API level. The future UI
-  // may send "auto" after explicitly telling the user that free text will be
-  // interpreted with AI. Structured answers alone require zero extra AI calls.
   const semanticMode = body.semanticProfileMode === "auto" ? "auto" : "off";
   if (
     semanticMode === "auto" &&
@@ -261,7 +279,12 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
         : createNeutralDesignProtocols();
 
       const interpretedProgram = await interpretArchitecturalProgram(ai, { prompt, metadata });
-      const baseProgram = enrichFunctionalProgram(interpretedProgram);
+      const grammarProgram = applyArchitecturalGrammarV3(interpretedProgram, site);
+      const functionalProgram = enrichFunctionalProgram(grammarProgram);
+      // Re-apply pair sanitization after functional enrichment so no heuristic
+      // can reintroduce a forbidden sanitary/social direct access.
+      const baseProgram = applyArchitecturalGrammarV3(functionalProgram, site);
+
       const candidateBudget = Math.floor(clamp(body.candidateCount, 9, 60, 30));
       const baseSeed = Number.isFinite(Number(body.seed))
         ? Number(body.seed) >>> 0
@@ -290,10 +313,10 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
       }));
 
       return res.json({
-        engine: "v2-household-strategic",
+        engine: "v3-architectural-grammar",
         generationSource: householdProfile
-          ? "household-profile+design-protocols+typology-strategies+gemini-program+deterministic-layout"
-          : "neutral-protocols+typology-strategies+gemini-program+deterministic-layout",
+          ? "household-profile+design-protocols+typology-strategies+architectural-grammar-v3+gemini-program+deterministic-layout"
+          : "neutral-protocols+typology-strategies+architectural-grammar-v3+gemini-program+deterministic-layout",
         seed: baseSeed,
         site,
         householdProfile: compactProfileSummary(householdProfile),
@@ -304,6 +327,7 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
           valid: strategic.validCount,
           returned: candidates.length,
           strategies: strategic.alternatives.map((alternative) => alternative.strategy.id),
+          levels: site.levels,
         },
         candidates,
       });
