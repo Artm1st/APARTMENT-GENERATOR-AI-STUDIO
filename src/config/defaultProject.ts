@@ -11,6 +11,7 @@ export const INITIAL_ROOMS: Room[] = [
     h: 4.0,
     targetW: 5.0,
     targetH: 4.0,
+    floor: 0,
     color: "#FEF3C7",
     connections: ["cocina", "pasillo"],
     openings: [
@@ -33,6 +34,7 @@ export const INITIAL_ROOMS: Room[] = [
     h: 3.0,
     targetW: 3.5,
     targetH: 3.0,
+    floor: 0,
     color: "#FEE2E2",
     connections: ["sala"],
     openings: [{ id: "win_coc", type: "window", side: "left", offset: 0.5, width: 1.2 }],
@@ -52,6 +54,7 @@ export const INITIAL_ROOMS: Room[] = [
     h: 4.0,
     targetW: 4.5,
     targetH: 4.0,
+    floor: 0,
     color: "#DBEAFE",
     connections: ["pasillo", "bano_privado"],
     openings: [
@@ -73,6 +76,7 @@ export const INITIAL_ROOMS: Room[] = [
     h: 4.0,
     targetW: 1.2,
     targetH: 4.0,
+    floor: 0,
     color: "#F3F4F6",
     connections: ["sala", "dormitorio", "bano"],
     openings: [{ id: "door_pas_bano", type: "door", side: "left", offset: 0.8, width: 0.8 }],
@@ -88,6 +92,7 @@ export const INITIAL_ROOMS: Room[] = [
     h: 2.0,
     targetW: 2.5,
     targetH: 2.0,
+    floor: 0,
     color: "#E0F2FE",
     connections: ["pasillo"],
     openings: [{ id: "win_bano", type: "window", side: "left", offset: 0.3, width: 0.6 }],
@@ -107,6 +112,7 @@ export const INITIAL_ROOMS: Room[] = [
     h: 1.6,
     targetW: 2.2,
     targetH: 1.6,
+    floor: 0,
     color: "#E0F2FE",
     connections: ["dormitorio"],
     openings: [{ id: "win_bano_p", type: "window", side: "right", offset: 0.5, width: 0.6 }],
@@ -125,6 +131,10 @@ export const INITIAL_TERRAIN: Terrain = {
   setbackLeft: 1.5,
   setbackRight: 1.5,
   hasPerimeterWall: true,
+  entrySide: "front",
+  northAngleDeg: 0,
+  hemisphere: "south",
+  levels: 1,
 };
 
 export const INITIAL_PHYSICS_CONFIG: PhysicsConfig = {
