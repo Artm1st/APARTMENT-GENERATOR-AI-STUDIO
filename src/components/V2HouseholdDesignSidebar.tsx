@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Home, Sparkles, Users, Shield, Heart, ChefHat, Laptop, Sprout, Accessibility, PiggyBank, Package, WandSparkles } from "lucide-react";
+import { Home, Sparkles, Users, Shield, Heart, ChefHat, Laptop, Sprout, Accessibility, PiggyBank, Package, WandSparkles, Compass, Layers } from "lucide-react";
 import type { Terrain } from "../types";
 import type { HouseholdQuestionnaireAnswers } from "../domain/v2/householdQuestionnaire";
 
@@ -13,6 +13,7 @@ interface V2HouseholdDesignSidebarProps {
 type Level = "low" | "medium" | "high";
 type AccessibilityLevel = "standard" | "enhanced" | "universal";
 type HouseholdType = "single" | "couple" | "family" | "multigenerational" | "shared";
+type EntrySide = NonNullable<Terrain["entrySide"]>;
 
 const levelOptions: Array<{ value: Level; label: string }> = [
   { value: "low", label: "Baja" },
@@ -26,6 +27,13 @@ const householdTypes: Array<{ value: HouseholdType; label: string }> = [
   { value: "family", label: "Familia" },
   { value: "multigenerational", label: "Multigeneracional" },
   { value: "shared", label: "Compartida" },
+];
+
+const entryOptions: Array<{ value: EntrySide; label: string }> = [
+  { value: "front", label: "Frente" },
+  { value: "back", label: "Fondo" },
+  { value: "left", label: "Izquierda" },
+  { value: "right", label: "Derecha" },
 ];
 
 function ChoiceButtons<T extends string>({
@@ -127,6 +135,7 @@ export default function V2HouseholdDesignSidebar({
   ]);
 
   const handleGenerate = () => {
+    const levels = terrain.levels ?? 1;
     const profileText = [
       `Vivienda unifamiliar para ${householdSize} personas (${householdType}).`,
       `Privacidad ${privacyPriority}; convivencia social ${socialLivingPriority}; cocina ${cookingIntensity}.`,
@@ -135,6 +144,7 @@ export default function V2HouseholdDesignSidebar({
       incrementalConstruction ? "Se contempla construcción o ampliación por etapas." : "Se plantea construcción principalmente en una etapa.",
       `Accesibilidad ${accessibilityPriority}; almacenamiento ${storagePriority}; sensibilidad al costo ${budgetSensitivity}.`,
       frequentVisitors ? "La familia recibe visitas con frecuencia." : "La familia recibe pocas visitas.",
+      `Se explorará una solución de ${levels} nivel(es).`,
       essentialNeeds.trim() ? `Necesidades imprescindibles indicadas por la familia: ${essentialNeeds.trim()}.` : "",
       "Propón un programa arquitectónico doméstico básico y coherente con este perfil. No inventes requisitos normativos ni coordenadas.",
     ].filter(Boolean).join(" ");
@@ -143,6 +153,12 @@ export default function V2HouseholdDesignSidebar({
       householdAnswers,
       semanticProfileMode: semanticMode ? "auto" : "off",
       householdFirst: true,
+      siteDesign: {
+        entrySide: terrain.entrySide ?? "front",
+        northAngleDeg: terrain.northAngleDeg ?? 0,
+        hemisphere: terrain.hemisphere ?? "south",
+        levels,
+      },
     });
   };
 
@@ -164,7 +180,7 @@ export default function V2HouseholdDesignSidebar({
       </section>
 
       <section className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-4">
-        <div className="flex items-center gap-2"><Home className="w-4 h-4 text-indigo-600" /><h4 className="text-xs font-extrabold text-slate-900">1. Lote</h4></div>
+        <div className="flex items-center gap-2"><Home className="w-4 h-4 text-indigo-600" /><h4 className="text-xs font-extrabold text-slate-900">1. Lote, acceso y orientación</h4></div>
         <div className="grid grid-cols-2 gap-2">
           <label className="text-[9px] font-bold text-slate-500">Ancho (m)
             <input type="number" min={3} step={0.5} value={terrain.width} onChange={(e) => onUpdateTerrain({ ...terrain, width: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-800" />
@@ -185,8 +201,42 @@ export default function V2HouseholdDesignSidebar({
             </label>
           ))}
         </div>
+
+        <div className="border-t border-slate-100 pt-3 space-y-3">
+          <div>
+            <div className="flex items-center gap-1.5 mb-1.5"><Home className="w-3 h-3 text-slate-500" /><span className="text-[10px] font-bold text-slate-700">¿Por qué lado se produce el ingreso principal?</span></div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {entryOptions.map((option) => (
+                <button key={option.value} type="button" onClick={() => onUpdateTerrain({ ...terrain, entrySide: option.value })} className={`rounded-lg border px-1 py-1.5 text-[8px] font-bold cursor-pointer ${(terrain.entrySide ?? "front") === option.value ? "bg-indigo-600 text-white border-indigo-500" : "bg-white text-slate-600 border-slate-200"}`}>{option.label}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-[9px] font-bold text-slate-500">
+              <span className="flex items-center gap-1"><Compass className="w-3 h-3" /> Norte de proyecto (°)</span>
+              <input type="number" min={0} max={359} step={5} value={terrain.northAngleDeg ?? 0} onChange={(e) => onUpdateTerrain({ ...terrain, northAngleDeg: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-800" />
+            </label>
+            <label className="text-[9px] font-bold text-slate-500">Hemisferio
+              <select value={terrain.hemisphere ?? "south"} onChange={(e) => onUpdateTerrain({ ...terrain, hemisphere: e.target.value as "south" | "north" })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-800 bg-white">
+                <option value="south">Sur</option>
+                <option value="north">Norte</option>
+              </select>
+            </label>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-1.5 mb-1.5"><Layers className="w-3 h-3 text-slate-500" /><span className="text-[10px] font-bold text-slate-700">Niveles a explorar</span></div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[1, 2, 3, 4].map((level) => (
+                <button key={level} type="button" onClick={() => onUpdateTerrain({ ...terrain, levels: level })} className={`rounded-lg border py-1.5 text-[9px] font-bold cursor-pointer ${(terrain.levels ?? 1) === level ? "bg-indigo-600 text-white border-indigo-500" : "bg-white text-slate-600 border-slate-200"}`}>{level}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         <p className="text-[9px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2">
-          Los retiros son parámetros del proyecto/municipio, no valores genéricos del RNE.
+          Los retiros son parámetros del proyecto/municipio. Para asoleamiento, usa norte geográfico/verdadero cuando sea posible; el score solar es preliminar, no una simulación de horas de sol.
         </p>
       </section>
 
