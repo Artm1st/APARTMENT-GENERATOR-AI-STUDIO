@@ -6,6 +6,7 @@ import {
   SpatialRelation,
 } from "../domain/v2/types";
 import { validateProgramGraph } from "../domain/v2/graph";
+import { runWithGeminiFallback } from "./modelResilience";
 
 export interface ProgramInterpretationInput {
   prompt: string;
@@ -210,21 +211,24 @@ export async function interpretArchitecturalProgram(
     ? `\nDatos estructurados adicionales del usuario: ${JSON.stringify(input.metadata)}`
     : "";
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
-    contents: `Interpreta este encargo arquitectónico:\n${input.prompt}${metadataText}`,
-    config: {
-      systemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: programResponseSchema,
-      temperature: 0.1,
-    },
-  });
+  const { value: response, model } = await runWithGeminiFallback((modelName) =>
+    ai.models.generateContent({
+      model: modelName,
+      contents: `Interpreta este encargo arquitectónico:\n${input.prompt}${metadataText}`,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: programResponseSchema,
+        temperature: 0.1,
+      },
+    })
+  );
 
   if (!response.text) {
     throw new Error("Gemini no devolvió un programa arquitectónico estructurado.");
   }
 
+  console.info(`[Engine v2] Programa arquitectónico interpretado con ${model}.`);
   const parsed = JSON.parse(response.text) as ArchitecturalProgram;
   return sanitizeProgram(parsed);
 }
