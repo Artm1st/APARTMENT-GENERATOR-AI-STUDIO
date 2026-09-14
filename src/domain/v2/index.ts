@@ -5,4 +5,6 @@ export * from "./openingPlanner";
 export * from "./constraints";
 export * from "./scoring";
 export * from "./candidatePipeline";
+export * from "./candidateGenerator";
+export * from "./random";
 export * from "./legacyAdapter";
