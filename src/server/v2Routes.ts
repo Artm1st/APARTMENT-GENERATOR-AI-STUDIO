@@ -281,11 +281,9 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
       const interpretedProgram = await interpretArchitecturalProgram(ai, { prompt, metadata });
       const grammarProgram = applyArchitecturalGrammarV3(interpretedProgram, site);
       const functionalProgram = enrichFunctionalProgram(grammarProgram);
-      // Re-apply pair sanitization after functional enrichment so no heuristic
-      // can reintroduce a forbidden sanitary/social direct access.
       const baseProgram = applyArchitecturalGrammarV3(functionalProgram, site);
 
-      const candidateBudget = Math.floor(clamp(body.candidateCount, 9, 60, 30));
+      const candidateBudget = Math.floor(clamp(body.candidateCount, 9, 60, 36));
       const baseSeed = Number.isFinite(Number(body.seed))
         ? Number(body.seed) >>> 0
         : hashString(`${prompt}|${JSON.stringify(site)}|${JSON.stringify(metadata ?? {})}`);
@@ -309,6 +307,7 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
           reasons: alternative.strategy.reasons,
           generated: alternative.generatedCount,
           valid: alternative.validCount,
+          repairPassUsed: alternative.repairPassUsed,
         },
       }));
 
@@ -328,6 +327,7 @@ export function registerV2Routes(app: Express, getAI: () => GoogleGenAI): void {
           returned: candidates.length,
           strategies: strategic.alternatives.map((alternative) => alternative.strategy.id),
           levels: site.levels,
+          repairedStrategies: strategic.repairedStrategies,
         },
         candidates,
       });
