@@ -138,6 +138,7 @@ export interface ExteriorBoundary {
 export interface TopologyOpening {
   id: string;
   type: "door" | "window";
+  role?: "main_entry" | "interior" | "daylight";
   hostBoundaryId: string;
   spaceAId: string;
   spaceBId?: string;
@@ -160,8 +161,10 @@ export interface GeometryIssue {
     | "BROKEN_DIRECT_ACCESS"
     | "FORBIDDEN_DIRECT_ACCESS"
     | "MISSING_EXTERIOR_OPENING"
+    | "MISSING_MAIN_ENTRY"
     | "DISCONNECTED_CIRCULATION"
-    | "MISSING_VERTICAL_CONNECTION";
+    | "MISSING_VERTICAL_CONNECTION"
+    | "INSUFFICIENT_FURNITURE_FIT";
   severity: "error" | "warning";
   message: string;
   spaceIds: string[];
@@ -176,6 +179,7 @@ export interface CandidateScore {
   daylight: number;
   solarOrientation: number;
   privacy: number;
+  habitability: number;
   areaEfficiency: number;
   structuralRegularity: number;
   zoning: number;
