@@ -11,6 +11,7 @@ import ThreeDView from "./components/ThreeDView";
 import EditorSidebar from "./components/EditorSidebar";
 import V2HouseholdDesignSidebar from "./components/V2HouseholdDesignSidebar";
 import MagnetizerControls from "./components/MagnetizerControls";
+import SiteOrientationLegend from "./components/SiteOrientationLegend";
 import { relaxRooms, snapAllToGrid } from "./utils/physics";
 import { generateRandomLayout } from "./utils/generators";
 import { INITIAL_PHYSICS_CONFIG, INITIAL_ROOMS, INITIAL_TERRAIN } from "./config/defaultProject";
@@ -189,7 +190,7 @@ export default function App() {
   };
 
   const handleUpdateRoom = (updatedRoom: Room) => {
-    setRooms(rooms.map((room) => (room.id === updatedRoom.id ? updatedRoom : room)));
+    setRooms(rooms.map((room) => (room.id === updatedRoom.id ? updatedRoom : room));
   };
 
   const candidateTitle = (candidate: V2CandidateOption, index: number): string =>
@@ -272,7 +273,7 @@ export default function App() {
 
       if (isV2) {
         if (!Array.isArray(data.candidates) || data.candidates.length === 0) {
-          throw new Error("Engine v3.1 no devolvió alternativas de planta.");
+          throw new Error("Engine v3.2 no devolvió alternativas de planta.");
         }
 
         const candidates = data.candidates as V2CandidateOption[];
@@ -321,7 +322,7 @@ export default function App() {
             <h1 className="text-md font-extrabold tracking-tight">DISEÑO ARQUITECTÓNICO GENERATIVO IA</h1>
             <p className="text-[10px] text-slate-400 font-medium">
               {engineMode === "v2"
-                ? "Prediseño habitacional · familia + habitabilidad + gramática arquitectónica + restricciones verificables"
+                ? "Prediseño habitacional · familia + habitabilidad + acceso y orientación como generadores de forma"
                 : "Motor experimental anterior de distribución y relajación magnética"}
             </p>
           </div>
@@ -329,7 +330,7 @@ export default function App() {
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-1 flex items-center gap-1">
-            <button id="engine-mode-v2" onClick={() => changeEngineMode("v2")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${engineMode === "v2" ? "bg-indigo-500 text-white shadow" : "text-slate-400 hover:text-white"}`}><Cpu className="w-3 h-3" /> Engine v3.1 Beta</button>
+            <button id="engine-mode-v2" onClick={() => changeEngineMode("v2")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${engineMode === "v2" ? "bg-indigo-500 text-white shadow" : "text-slate-400 hover:text-white"}`}><Cpu className="w-3 h-3" /> Engine v3.2 Beta</button>
             <button id="engine-mode-legacy" onClick={() => changeEngineMode("legacy")} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${engineMode === "legacy" ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"}`}>Motor anterior</button>
           </div>
 
@@ -388,7 +389,7 @@ export default function App() {
               <div className="flex flex-wrap justify-between gap-3 items-start mb-3">
                 <div>
                   <div className="flex items-center gap-2 text-sm font-bold text-indigo-100"><Sparkles className="w-4 h-4 text-indigo-300" /> Estrategias para tu hogar</div>
-                  <p className="text-[10px] text-indigo-300 mt-1 max-w-xl">Cada alternativa representa una intención arquitectónica distinta. El motor considera ingreso exterior real, privacidad, incompatibilidades funcionales, furniture-fit, orientación solar preliminar y, si corresponde, conexión vertical.</p>
+                  <p className="text-[10px] text-indigo-300 mt-1 max-w-xl">Cada alternativa representa una intención arquitectónica distinta. En v3.2 el lado de ingreso y la orientación norte participan durante la colocación de ambientes, además de validarse al final.</p>
                 </div>
                 {v2GenerationStats && (
                   <div className="text-right text-[9px] text-indigo-300 font-mono">
@@ -450,6 +451,9 @@ export default function App() {
           )}
 
           <div className="relative flex-1 min-h-[450px]">
+            {engineMode === "v2" && activeTab === "2d" && (
+              <SiteOrientationLegend terrain={terrain} rooms={visibleRooms} />
+            )}
             {activeTab === "2d" ? (
               <FloorPlanCanvas rooms={visibleRooms} terrain={terrain} physicsConfig={physicsConfig} selectedRoomId={selectedRoomId} onSelectRoom={setSelectedRoomId} onUpdateRooms={handleUpdateVisibleRooms} />
             ) : (
@@ -460,7 +464,7 @@ export default function App() {
           {engineMode === "legacy" ? (
             <MagnetizerControls rooms={rooms} terrain={terrain} physicsConfig={physicsConfig} planName={planName} onUpdateConfig={setPhysicsConfig} onStepSimulation={handleStepSimulation} onResetSimulation={handleResetSimulation} onSnapToGrid={handleSnapToGrid} />
           ) : (
-            <div className="bg-white border border-indigo-100 rounded-2xl p-3 text-[10px] text-slate-500 shadow-xs"><strong className="text-indigo-700">Engine v3.1:</strong> el magnetizador queda desactivado durante la comparación para no deformar una solución evaluada. El ingreso, el furniture-fit y las ventanas orientadas se vuelven a validar en cada candidata.</div>
+            <div className="bg-white border border-indigo-100 rounded-2xl p-3 text-[10px] text-slate-500 shadow-xs"><strong className="text-indigo-700">Engine v3.2:</strong> ingreso y norte participan durante la búsqueda geométrica. La leyenda sobre el plano permite comprobar el ángulo de norte y qué ambiente recibe la puerta principal.</div>
           )}
         </div>
 
