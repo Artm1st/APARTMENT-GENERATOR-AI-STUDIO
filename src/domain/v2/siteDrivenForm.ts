@@ -48,11 +48,14 @@ export function entrySideAsWall(site: SiteConstraints): WallSide {
 function entryReceiverWeight(space: LayoutSpace): number {
   if (space.floor !== 0) return 0;
   switch (space.type) {
-    case "corridor": return 34;
-    case "living": return 28;
-    case "dining": return 16;
-    case "stair": return 12;
-    case "studio": return 7;
+    // The distribution space should receive the pedestrian entry whenever one
+    // exists. Social rooms keep only a moderate pull toward the front so solar
+    // placement can still move them to a better facade.
+    case "corridor": return 38;
+    case "living": return 12;
+    case "dining": return 5;
+    case "stair": return 8;
+    case "studio": return 3;
     case "garage": return 10;
     default: return 0;
   }
