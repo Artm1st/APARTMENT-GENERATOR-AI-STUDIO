@@ -190,7 +190,7 @@ export default function App() {
   };
 
   const handleUpdateRoom = (updatedRoom: Room) => {
-    setRooms(rooms.map((room) => (room.id === updatedRoom.id ? updatedRoom : room));
+    setRooms(rooms.map((room) => (room.id === updatedRoom.id ? updatedRoom : room)));
   };
 
   const candidateTitle = (candidate: V2CandidateOption, index: number): string =>
